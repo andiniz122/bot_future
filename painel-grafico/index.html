@@ -1,1176 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
+  <head>
     <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Trading Dashboard Pro - Advanced</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="AI-Powered Trading Dashboard with Real-time Market Analysis" />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- Preload important fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <title>Trading Dashboard Pro - AI Trading Platform</title>
+    
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-            color: #f1f5f9;
-            overflow-x: hidden;
-        }
-
-        /* Header */
-        .header {
-            background: rgba(15, 23, 42, 0.95);
-            backdrop-filter: blur(10px);
-            border-bottom: 1px solid #334155;
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .header-stats {
-            display: flex;
-            gap: 2rem;
-            align-items: center;
-        }
-
-        .stat {
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 1.25rem;
-            font-weight: 700;
-        }
-
-        .stat-label {
-            font-size: 0.75rem;
-            color: #94a3b8;
-        }
-
-        .positive { color: #10b981; }
-        .negative { color: #ef4444; }
-        .neutral { color: #f59e0b; }
-
-        /* Main Layout */
-        .dashboard {
-            display: grid;
-            grid-template-columns: 300px 1fr 350px;
-            gap: 1rem;
-            padding: 1rem;
-            min-height: calc(100vh - 80px);
-        }
-
-        /* Sidebar */
-        .sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        /* Main Content */
-        .main-content {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-
-        /* Right Panel */
-        .right-panel {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-            max-height: calc(100vh - 100px);
-            overflow-y: auto;
-        }
-
-        /* Cards */
-        .card {
-            background: rgba(30, 41, 59, 0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid #334155;
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: all 0.3s ease;
-        }
-
-        .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.1);
-            border-color: #4f46e5;
-        }
-
-        .card-title {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .card-title .icon {
-            width: 20px;
-            height: 20px;
-        }
-
-        /* Bot Controls */
-        .bot-controls {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .btn {
-            padding: 0.5rem 1rem;
-            border: none;
-            border-radius: 6px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.875rem;
-        }
-
-        .btn-start {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-            color: white;
-        }
-
-        .btn-stop {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-            color: white;
-        }
-
-        .btn:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-        }
-
-        .btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        /* Status Indicators */
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            margin: 0.5rem 0;
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-
-        .status-dot.online { background: #10b981; }
-        .status-dot.offline { background: #ef4444; }
-        .status-dot.warning { background: #f59e0b; }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Chart Container */
-        .chart-container {
-            height: 400px;
-            position: relative;
-            background: rgba(15, 23, 42, 0.5);
-            border-radius: 8px;
-            padding: 1rem;
-        }
-
-        .chart-tabs {
-            display: flex;
-            gap: 0.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .chart-tab {
-            padding: 0.5rem 1rem;
-            background: rgba(51, 65, 85, 0.5);
-            border: 1px solid #475569;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.2s;
-            font-size: 0.875rem;
-        }
-
-        .chart-tab.active,
-        .chart-tab:hover {
-            background: rgba(99, 102, 241, 0.2);
-            border-color: #6366f1;
-            color: #a5b4fc;
-        }
-
-        /* RSI/MACD Indicators */
-        .indicators-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-top: 1rem;
-        }
-
-        .indicator {
-            background: rgba(15, 23, 42, 0.5);
-            border-radius: 8px;
-            padding: 1rem;
-            text-align: center;
-        }
-
-        .indicator-value {
-            font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.5rem;
-        }
-
-        .indicator-label {
-            font-size: 0.875rem;
-            color: #94a3b8;
-        }
-
-        .indicator-trend {
-            font-size: 0.75rem;
-            margin-top: 0.25rem;
-        }
-
-        /* Performance Metrics */
-        .performance-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-        }
-
-        .metric {
-            text-align: center;
-            padding: 1rem;
-            background: rgba(15, 23, 42, 0.3);
-            border-radius: 8px;
-        }
-
-        .metric-value {
-            font-size: 1.5rem;
-            font-weight: 700;
-        }
-
-        .metric-label {
-            font-size: 0.75rem;
-            color: #94a3b8;
-            margin-top: 0.25rem;
-        }
-
-        /* News Feed */
-        .news-item {
-            padding: 1rem;
-            border-bottom: 1px solid #334155;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .news-item:hover {
-            background: rgba(51, 65, 85, 0.3);
-        }
-
-        .news-item:last-child {
-            border-bottom: none;
-        }
-
-        .news-title {
-            font-size: 0.875rem;
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-            line-height: 1.4;
-        }
-
-        .news-meta {
-            font-size: 0.75rem;
-            color: #94a3b8;
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .news-impact {
-            padding: 0.125rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.625rem;
-            font-weight: 500;
-        }
-
-        .impact-high { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
-        .impact-medium { background: rgba(245, 158, 11, 0.2); color: #fcd34d; }
-        .impact-low { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
-
-        /* Trade Log */
-        .trade-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem;
-            border-bottom: 1px solid #334155;
-            font-size: 0.875rem;
-        }
-
-        .trade-item:last-child {
-            border-bottom: none;
-        }
-
-        .trade-symbol {
-            font-weight: 600;
-        }
-
-        .trade-action {
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-
-        .trade-buy { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
-        .trade-sell { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
-
-        .trade-pnl {
-            font-weight: 600;
-        }
-
-        /* Market Overview */
-        .market-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
-        }
-
-        .market-item {
-            text-align: center;
-            padding: 1rem;
-            background: rgba(15, 23, 42, 0.3);
-            border-radius: 8px;
-            border: 1px solid #334155;
-        }
-
-        .market-symbol {
-            font-size: 0.875rem;
-            color: #94a3b8;
-            margin-bottom: 0.5rem;
-        }
-
-        .market-price {
-            font-size: 1.25rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-        }
-
-        .market-change {
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        /* Scrollbar */
-        ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(51, 65, 85, 0.3); }
-        ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.5); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.7); }
-
-        /* Responsive */
-        @media (max-width: 1200px) {
-            .dashboard {
-                grid-template-columns: 250px 1fr 300px;
-            }
-        }
-
-        @media (max-width: 968px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
-            
-            .header {
-                padding: 1rem;
-            }
-            
-            .header-stats {
-                gap: 1rem;
-            }
-        }
+      /* Loading Screen Styles */
+      .loading-text {
+        color: #64748b;
+        font-size: 0.875rem;
+        margin-top: 1rem;
+        animation: fade 2s infinite;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.7; }
+      }
+      
+      @keyframes fade {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
+      
+      /* Global Styles */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      
+      body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+          'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+          sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        background-color: #0f172a;
+        color: #f1f5f9;
+      }
+      
+      code {
+        font-family: 'Fira Code', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+      }
     </style>
-</head>
-<body>
-    <!-- Header -->
-    <div class="header">
-        <div class="logo">📈 Trading Dashboard Pro</div>
-        <div class="header-stats">
-            <div class="stat">
-                <div class="stat-value positive" id="total-pnl">+$1,234.56</div>
-                <div class="stat-label">Total P&L</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value neutral" id="win-rate">68.5%</div>
-                <div class="stat-label">Win Rate</div>
-            </div>
-            <div class="stat">
-                <div class="stat-value" id="balance">$10,000.00</div>
-                <div class="stat-label">Balance</div>
-            </div>
-            <div class="status-indicator">
-                <div class="status-dot online" id="api-status"></div>
-                <span id="api-text">Connected</span>
-            </div>
-        </div>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    
+    <!-- Loading Screen -->
+    <div id="loading-screen" class="loading-screen">
+      <div class="loading-logo">📈 Trading Dashboard Pro</div>
+      <div class="loading-spinner"></div>
+      <div class="loading-text">Initializing AI Trading Platform...</div>
     </div>
-
-    <!-- Main Dashboard -->
-    <div class="dashboard">
-        <!-- Left Sidebar -->
-        <div class="sidebar">
-            <!-- Bot Controls -->
-            <div class="card">
-                <div class="card-title">
-                    🤖 Trading Bot
-                </div>
-                <div class="bot-controls">
-                    <button class="btn btn-start" onclick="controlBot('start')">▶️ Start</button>
-                    <button class="btn btn-stop" onclick="controlBot('stop')">⏸️ Stop</button>
-                </div>
-                <div class="status-indicator">
-                    <div class="status-dot warning" id="bot-status"></div>
-                    <span id="bot-text">Stopped</span>
-                </div>
-                <div id="bot-info" style="margin-top: 1rem; font-size: 0.875rem; color: #94a3b8;">
-                    Environment: Testnet<br>
-                    Strategy: AI Enhanced<br>
-                    Max Positions: 2
-                </div>
-            </div>
-
-            <!-- Performance Metrics -->
-            <div class="card">
-                <div class="card-title">📊 Performance</div>
-                <div class="performance-grid">
-                    <div class="metric">
-                        <div class="metric-value positive" id="daily-pnl">+$156.78</div>
-                        <div class="metric-label">Daily P&L</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value" id="total-trades">24</div>
-                        <div class="metric-label">Total Trades</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value positive" id="roi">+12.34%</div>
-                        <div class="metric-label">ROI</div>
-                    </div>
-                    <div class="metric">
-                        <div class="metric-value negative" id="drawdown">-2.1%</div>
-                        <div class="metric-label">Max DD</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Market Overview -->
-            <div class="card">
-                <div class="card-title">🌍 Markets</div>
-                <div class="market-grid">
-                    <div class="market-item">
-                        <div class="market-symbol">BTC/USDT</div>
-                        <div class="market-price" id="btc-price">$67,234</div>
-                        <div class="market-change positive" id="btc-change">+2.34%</div>
-                    </div>
-                    <div class="market-item">
-                        <div class="market-symbol">GOLD</div>
-                        <div class="market-price" id="gold-price">$2,345</div>
-                        <div class="market-change negative" id="gold-change">-0.89%</div>
-                    </div>
-                    <div class="market-item">
-                        <div class="market-symbol">DXY</div>
-                        <div class="market-price" id="dxy-price">104.56</div>
-                        <div class="market-change positive" id="dxy-change">+0.12%</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Price Chart -->
-            <div class="card" style="flex: 1;">
-                <div class="card-title">📈 Price Chart</div>
-                <div class="chart-tabs">
-                    <div class="chart-tab active" onclick="switchChart('price')">Price</div>
-                    <div class="chart-tab" onclick="switchChart('volume')">Volume</div>
-                    <div class="chart-tab" onclick="switchChart('rsi')">RSI</div>
-                    <div class="chart-tab" onclick="switchChart('macd')">MACD</div>
-                </div>
-                <div class="chart-container">
-                    <canvas id="main-chart"></canvas>
-                </div>
-            </div>
-
-            <!-- RSI & MACD Indicators -->
-            <div class="card">
-                <div class="card-title">⚡ Technical Indicators</div>
-                <div class="indicators-grid">
-                    <div class="indicator">
-                        <div class="indicator-value neutral" id="rsi-value">45.6</div>
-                        <div class="indicator-label">RSI (14)</div>
-                        <div class="indicator-trend neutral" id="rsi-trend">Neutral Zone</div>
-                    </div>
-                    <div class="indicator">
-                        <div class="indicator-value positive" id="macd-value">+0.0012</div>
-                        <div class="indicator-label">MACD</div>
-                        <div class="indicator-trend positive" id="macd-trend">Bullish Signal</div>
-                    </div>
-                    <div class="indicator">
-                        <div class="indicator-value neutral" id="bb-value">0.68</div>
-                        <div class="indicator-label">Bollinger %B</div>
-                        <div class="indicator-trend neutral" id="bb-trend">Mid Range</div>
-                    </div>
-                    <div class="indicator">
-                        <div class="indicator-value positive" id="volume-value">145%</div>
-                        <div class="indicator-label">Volume</div>
-                        <div class="indicator-trend positive" id="volume-trend">Above Average</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Right Panel -->
-        <div class="right-panel">
-            <!-- News Feed -->
-            <div class="card">
-                <div class="card-title">📰 Market News</div>
-                <div id="news-feed">
-                    <div class="news-item">
-                        <div class="news-title">Bitcoin ETF Sees Record Inflows as Institutional Interest Surges</div>
-                        <div class="news-meta">
-                            <span>2 minutes ago</span>
-                            <span class="news-impact impact-high">HIGH</span>
-                        </div>
-                    </div>
-                    <div class="news-item">
-                        <div class="news-title">Federal Reserve Hints at Potential Rate Cut in Q4</div>
-                        <div class="news-meta">
-                            <span>15 minutes ago</span>
-                            <span class="news-impact impact-medium">MED</span>
-                        </div>
-                    </div>
-                    <div class="news-item">
-                        <div class="news-title">Gold Futures Rise on Dollar Weakness</div>
-                        <div class="news-meta">
-                            <span>32 minutes ago</span>
-                            <span class="news-impact impact-medium">MED</span>
-                        </div>
-                    </div>
-                    <div class="news-item">
-                        <div class="news-title">Crypto Market Cap Reaches New All-Time High</div>
-                        <div class="news-meta">
-                            <span>1 hour ago</span>
-                            <span class="news-impact impact-low">LOW</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Trade Log -->
-            <div class="card">
-                <div class="card-title">📋 Recent Trades</div>
-                <div id="trade-log">
-                    <div class="trade-item">
-                        <div>
-                            <div class="trade-symbol">BTC/USDT</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">14:23:45</div>
-                        </div>
-                        <div class="trade-action trade-buy">BUY</div>
-                        <div class="trade-pnl positive">+$23.45</div>
-                    </div>
-                    <div class="trade-item">
-                        <div>
-                            <div class="trade-symbol">ETH/USDT</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">14:18:12</div>
-                        </div>
-                        <div class="trade-action trade-sell">SELL</div>
-                        <div class="trade-pnl negative">-$12.30</div>
-                    </div>
-                    <div class="trade-item">
-                        <div>
-                            <div class="trade-symbol">BTC/USDT</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">14:05:33</div>
-                        </div>
-                        <div class="trade-action trade-buy">BUY</div>
-                        <div class="trade-pnl positive">+$45.67</div>
-                    </div>
-                    <div class="trade-item">
-                        <div>
-                            <div class="trade-symbol">ETH/USDT</div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">13:52:18</div>
-                        </div>
-                        <div class="trade-action trade-sell">SELL</div>
-                        <div class="trade-pnl positive">+$78.90</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- AI Sentiment -->
-            <div class="card">
-                <div class="card-title">🧠 AI Sentiment</div>
-                <div style="text-align: center; margin-bottom: 1rem;">
-                    <div style="font-size: 2rem; margin-bottom: 0.5rem;">😊</div>
-                    <div style="font-size: 1.25rem; font-weight: 600; color: #10b981;">BULLISH</div>
-                    <div style="font-size: 0.875rem; color: #94a3b8;">Confidence: 78%</div>
-                </div>
-                <div style="font-size: 0.875rem; line-height: 1.5;">
-                    Strong buying pressure detected across multiple timeframes. 
-                    Technical indicators align with bullish sentiment. 
-                    Market momentum favors continuation of uptrend.
-                </div>
-            </div>
-        </div>
-    </div>
-
+    
+    <div id="root"></div>
+    
     <script>
-        // Global variables
-        let currentChart = null;
-        let currentChartType = 'price';
-        let botRunning = false;
-        let dataUpdateInterval = null;
-
-        // Initialize dashboard
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeCharts();
-            updateRealTimeData();
-            setInterval(updateRealTimeData, 5000);
-            setInterval(updatePriceData, 10000);
-            setInterval(addRandomTrade, 30000); // Add random trade every 30 seconds
-        });
-
-        // Chart options configuration
-        function getChartOptions() {
-            return {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        labels: { color: '#f1f5f9' }
-                    }
-                },
-                scales: {
-                    x: {
-                        grid: { color: 'rgba(51, 65, 85, 0.5)' },
-                        ticks: { color: '#94a3b8' }
-                    },
-                    y: {
-                        grid: { color: 'rgba(51, 65, 85, 0.5)' },
-                        ticks: { color: '#94a3b8' }
-                    }
-                }
-            };
-        }
-
-        // Initialize charts
-        function initializeCharts() {
-            const ctx = document.getElementById('main-chart').getContext('2d');
-            
-            // Generate sample price data
-            const priceData = generatePriceData();
-            
-            currentChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: priceData.labels,
-                    datasets: [{
-                        label: 'BTC/USDT',
-                        data: priceData.prices,
-                        borderColor: '#6366f1',
-                        backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                        tension: 0.4,
-                        fill: true
-                    }]
-                },
-                options: getChartOptions()
-            });
-        }
-
-        // Generate sample data functions
-        function generatePriceData() {
-            const labels = [];
-            const prices = [];
-            let basePrice = 67000;
-            
-            for (let i = 0; i < 50; i++) {
-                const date = new Date();
-                date.setMinutes(date.getMinutes() - (50 - i) * 5);
-                labels.push(date.toLocaleTimeString());
-                
-                basePrice += (Math.random() - 0.5) * 500;
-                prices.push(basePrice);
-            }
-            
-            return { labels, prices };
-        }
-
-        function generateRSIData() {
-            const labels = [];
-            const rsiValues = [];
-            
-            for (let i = 0; i < 50; i++) {
-                const date = new Date();
-                date.setMinutes(date.getMinutes() - (50 - i) * 5);
-                labels.push(date.toLocaleTimeString());
-                rsiValues.push(30 + Math.random() * 40);
-            }
-            
-            return { labels, rsiValues };
-        }
-
-        function generateMACDData() {
-            const labels = [];
-            const macdLine = [];
-            const signalLine = [];
-            
-            for (let i = 0; i < 50; i++) {
-                const date = new Date();
-                date.setMinutes(date.getMinutes() - (50 - i) * 5);
-                labels.push(date.toLocaleTimeString());
-                
-                const macd = (Math.random() - 0.5) * 0.01;
-                macdLine.push(macd);
-                signalLine.push(macd * 0.8 + (Math.random() - 0.5) * 0.002);
-            }
-            
-            return { labels, macdLine, signalLine };
-        }
-
-        function generateVolumeData() {
-            const labels = [];
-            const volumes = [];
-            
-            for (let i = 0; i < 50; i++) {
-                const date = new Date();
-                date.setMinutes(date.getMinutes() - (50 - i) * 5);
-                labels.push(date.toLocaleTimeString());
-                volumes.push(Math.random() * 1000000 + 500000);
-            }
-            
-            return { labels, volumes };
-        }
-
-        // Switch chart type
-        function switchChart(type) {
-            // Update tab appearance
-            document.querySelectorAll('.chart-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            event.target.classList.add('active');
-            
-            currentChartType = type;
-            
-            if (currentChart) {
-                currentChart.destroy();
-            }
-            
-            const ctx = document.getElementById('main-chart').getContext('2d');
-            
-            switch(type) {
-                case 'price':
-                    const priceData = generatePriceData();
-                    currentChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: priceData.labels,
-                            datasets: [{
-                                label: 'BTC/USDT',
-                                data: priceData.prices,
-                                borderColor: '#6366f1',
-                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                                tension: 0.4,
-                                fill: true
-                            }]
-                        },
-                        options: getChartOptions()
-                    });
-                    break;
-                    
-                case 'volume':
-                    const volumeData = generateVolumeData();
-                    currentChart = new Chart(ctx, {
-                        type: 'bar',
-                        data: {
-                            labels: volumeData.labels,
-                            datasets: [{
-                                label: 'Volume',
-                                data: volumeData.volumes,
-                                backgroundColor: 'rgba(16, 185, 129, 0.6)',
-                                borderColor: '#10b981'
-                            }]
-                        },
-                        options: getChartOptions()
-                    });
-                    break;
-                    
-                case 'rsi':
-                    const rsiData = generateRSIData();
-                    currentChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: rsiData.labels,
-                            datasets: [{
-                                label: 'RSI',
-                                data: rsiData.rsiValues,
-                                borderColor: '#f59e0b',
-                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                                tension: 0.4
-                            }]
-                        },
-                        options: {
-                            ...getChartOptions(),
-                            scales: {
-                                ...getChartOptions().scales,
-                                y: {
-                                    ...getChartOptions().scales.y,
-                                    min: 0,
-                                    max: 100
-                                }
-                            }
-                        }
-                    });
-                    break;
-                    
-                case 'macd':
-                    const macdData = generateMACDData();
-                    currentChart = new Chart(ctx, {
-                        type: 'line',
-                        data: {
-                            labels: macdData.labels,
-                            datasets: [{
-                                label: 'MACD',
-                                data: macdData.macdLine,
-                                borderColor: '#6366f1',
-                                backgroundColor: 'rgba(99, 102, 241, 0.1)',
-                                tension: 0.4
-                            }, {
-                                label: 'Signal',
-                                data: macdData.signalLine,
-                                borderColor: '#ef4444',
-                                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                                tension: 0.4
-                            }]
-                        },
-                        options: getChartOptions()
-                    });
-                    break;
-            }
-        }
-
-        // Bot control functions
-        function controlBot(action) {
-            if (action === 'start') {
-                botRunning = true;
-                document.getElementById('bot-status').className = 'status-dot online';
-                document.getElementById('bot-text').textContent = 'Running';
-                document.querySelector('.btn-start').disabled = true;
-                document.querySelector('.btn-stop').disabled = false;
-                
-                // Start generating trades
-                dataUpdateInterval = setInterval(generateBotActivity, 10000);
-                
-                showNotification('Trading bot started successfully!', 'success');
-            } else if (action === 'stop') {
-                botRunning = false;
-                document.getElementById('bot-status').className = 'status-dot warning';
-                document.getElementById('bot-text').textContent = 'Stopped';
-                document.querySelector('.btn-start').disabled = false;
-                document.querySelector('.btn-stop').disabled = true;
-                
-                if (dataUpdateInterval) {
-                    clearInterval(dataUpdateInterval);
-                }
-                
-                showNotification('Trading bot stopped', 'warning');
-            }
-        }
-
-        // Update real-time data
-        function updateRealTimeData() {
-            // Update market prices
-            updateMarketPrices();
-            
-            // Update indicators
-            updateTechnicalIndicators();
-            
-            // Update performance metrics
-            updatePerformanceMetrics();
-        }
-
-        function updateMarketPrices() {
-            const btcPrice = 67000 + (Math.random() - 0.5) * 2000;
-            const goldPrice = 2340 + (Math.random() - 0.5) * 50;
-            const dxyPrice = 104.5 + (Math.random() - 0.5) * 2;
-            
-            const btcChange = (Math.random() - 0.5) * 5;
-            const goldChange = (Math.random() - 0.5) * 2;
-            const dxyChange = (Math.random() - 0.5) * 0.5;
-            
-            document.getElementById('btc-price').textContent = `${btcPrice.toFixed(0)}`;
-            document.getElementById('gold-price').textContent = `${goldPrice.toFixed(0)}`;
-            document.getElementById('dxy-price').textContent = dxyPrice.toFixed(2);
-            
-            document.getElementById('btc-change').textContent = `${btcChange >= 0 ? '+' : ''}${btcChange.toFixed(2)}%`;
-            document.getElementById('btc-change').className = `market-change ${btcChange >= 0 ? 'positive' : 'negative'}`;
-            
-            document.getElementById('gold-change').textContent = `${goldChange >= 0 ? '+' : ''}${goldChange.toFixed(2)}%`;
-            document.getElementById('gold-change').className = `market-change ${goldChange >= 0 ? 'positive' : 'negative'}`;
-            
-            document.getElementById('dxy-change').textContent = `${dxyChange >= 0 ? '+' : ''}${dxyChange.toFixed(2)}%`;
-            document.getElementById('dxy-change').className = `market-change ${dxyChange >= 0 ? 'positive' : 'negative'}`;
-        }
-
-        function updateTechnicalIndicators() {
-            const rsi = 30 + Math.random() * 40;
-            const macd = (Math.random() - 0.5) * 0.002;
-            const bb = Math.random();
-            const volume = 100 + Math.random() * 100;
-            
-            document.getElementById('rsi-value').textContent = rsi.toFixed(1);
-            document.getElementById('rsi-value').className = `indicator-value ${rsi > 70 ? 'negative' : rsi < 30 ? 'positive' : 'neutral'}`;
-            document.getElementById('rsi-trend').textContent = rsi > 70 ? 'Overbought' : rsi < 30 ? 'Oversold' : 'Neutral Zone';
-            
-            document.getElementById('macd-value').textContent = `${macd >= 0 ? '+' : ''}${macd.toFixed(4)}`;
-            document.getElementById('macd-value').className = `indicator-value ${macd >= 0 ? 'positive' : 'negative'}`;
-            document.getElementById('macd-trend').textContent = macd >= 0 ? 'Bullish Signal' : 'Bearish Signal';
-            
-            document.getElementById('bb-value').textContent = bb.toFixed(2);
-            document.getElementById('bb-value').className = `indicator-value ${bb > 0.8 ? 'negative' : bb < 0.2 ? 'positive' : 'neutral'}`;
-            document.getElementById('bb-trend').textContent = bb > 0.8 ? 'Upper Band' : bb < 0.2 ? 'Lower Band' : 'Mid Range';
-            
-            document.getElementById('volume-value').textContent = `${volume.toFixed(0)}%`;
-            document.getElementById('volume-value').className = `indicator-value ${volume > 120 ? 'positive' : volume < 80 ? 'negative' : 'neutral'}`;
-            document.getElementById('volume-trend').textContent = volume > 120 ? 'Above Average' : volume < 80 ? 'Below Average' : 'Average';
-        }
-
-        function updatePerformanceMetrics() {
-            const dailyPnl = -50 + Math.random() * 300;
-            const totalTrades = Math.floor(20 + Math.random() * 20);
-            const roi = -5 + Math.random() * 20;
-            const drawdown = Math.random() * 5;
-            
-            document.getElementById('daily-pnl').textContent = `${dailyPnl >= 0 ? '+' : ''}${dailyPnl.toFixed(2)}`;
-            document.getElementById('daily-pnl').className = `metric-value ${dailyPnl >= 0 ? 'positive' : 'negative'}`;
-            
-            document.getElementById('total-trades').textContent = totalTrades;
-            
-            document.getElementById('roi').textContent = `${roi >= 0 ? '+' : ''}${roi.toFixed(2)}%`;
-            document.getElementById('roi').className = `metric-value ${roi >= 0 ? 'positive' : 'negative'}`;
-            
-            document.getElementById('drawdown').textContent = `-${drawdown.toFixed(1)}%`;
-        }
-
-        function updatePriceData() {
-            if (currentChart && currentChartType === 'price') {
-                const newPrice = 67000 + (Math.random() - 0.5) * 1000;
-                const newTime = new Date().toLocaleTimeString();
-                
-                currentChart.data.labels.push(newTime);
-                currentChart.data.datasets[0].data.push(newPrice);
-                
-                // Keep only last 50 data points
-                if (currentChart.data.labels.length > 50) {
-                    currentChart.data.labels.shift();
-                    currentChart.data.datasets[0].data.shift();
-                }
-                
-                currentChart.update('none');
-            }
-        }
-
-        // Generate bot activity
-        function generateBotActivity() {
-            if (botRunning) {
-                addRandomTrade();
-                updateNewsItem();
-            }
-        }
-
-        function addRandomTrade() {
-            const symbols = ['BTC/USDT', 'ETH/USDT', 'ADA/USDT', 'DOT/USDT'];
-            const actions = ['BUY', 'SELL'];
-            const symbol = symbols[Math.floor(Math.random() * symbols.length)];
-            const action = actions[Math.floor(Math.random() * actions.length)];
-            const pnl = (Math.random() - 0.3) * 100; // Slightly biased positive
-            const time = new Date().toLocaleTimeString();
-            
-            const tradeLog = document.getElementById('trade-log');
-            const tradeItem = document.createElement('div');
-            tradeItem.className = 'trade-item';
-            tradeItem.style.opacity = '0';
-            tradeItem.style.transform = 'translateY(-10px)';
-            
-            tradeItem.innerHTML = `
-                <div>
-                    <div class="trade-symbol">${symbol}</div>
-                    <div style="font-size: 0.75rem; color: #94a3b8;">${time}</div>
-                </div>
-                <div class="trade-action trade-${action.toLowerCase()}">${action}</div>
-                <div class="trade-pnl ${pnl >= 0 ? 'positive' : 'negative'}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</div>
-            `;
-            
-            tradeLog.insertBefore(tradeItem, tradeLog.firstChild);
-            
-            // Animate in
-            setTimeout(() => {
-                tradeItem.style.transition = 'all 0.3s ease';
-                tradeItem.style.opacity = '1';
-                tradeItem.style.transform = 'translateY(0)';
-            }, 10);
-            
-            // Keep only last 5 trades
-            while (tradeLog.children.length > 5) {
-                tradeLog.removeChild(tradeLog.lastChild);
-            }
-            
-            // Update header stats
-            updateHeaderStats(pnl);
-        }
-
-        function updateHeaderStats(tradePnl) {
-            const currentPnl = parseFloat(document.getElementById('total-pnl').textContent.replace(/[+$,]/g, ''));
-            const newPnl = currentPnl + tradePnl;
-            
-            document.getElementById('total-pnl').textContent = `${newPnl >= 0 ? '+' : ''}${newPnl.toFixed(2)}`;
-            document.getElementById('total-pnl').className = `stat-value ${newPnl >= 0 ? 'positive' : 'negative'}`;
-            
-            const currentBalance = parseFloat(document.getElementById('balance').textContent.replace(/[$,]/g, ''));
-            const newBalance = currentBalance + tradePnl;
-            document.getElementById('balance').textContent = `${newBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}`;
-        }
-
-        function updateNewsItem() {
-            const newsItems = [
-                { title: "Bitcoin Breaks Key Resistance Level at $68,000", impact: "high" },
-                { title: "Ethereum 2.0 Staking Rewards Increase by 15%", impact: "medium" },
-                { title: "Major Crypto Exchange Announces New Trading Pairs", impact: "low" },
-                { title: "DeFi Protocol Launches New Yield Farming Program", impact: "medium" },
-                { title: "Central Bank Digital Currency Pilot Program Expands", impact: "high" },
-                { title: "Crypto Market Sentiment Turns Bullish on Fed Comments", impact: "high" },
-                { title: "New Blockchain Gaming Platform Gains Traction", impact: "low" },
-                { title: "Institutional Adoption of Crypto Reaches New Milestone", impact: "medium" }
-            ];
-            
-            const newItem = newsItems[Math.floor(Math.random() * newsItems.length)];
-            const newsFeed = document.getElementById('news-feed');
-            
-            const newsElement = document.createElement('div');
-            newsElement.className = 'news-item';
-            newsElement.style.opacity = '0';
-            newsElement.style.transform = 'translateY(-10px)';
-            
-            newsElement.innerHTML = `
-                <div class="news-title">${newItem.title}</div>
-                <div class="news-meta">
-                    <span>Just now</span>
-                    <span class="news-impact impact-${newItem.impact}">${newItem.impact.toUpperCase()}</span>
-                </div>
-            `;
-            
-            newsFeed.insertBefore(newsElement, newsFeed.firstChild);
-            
-            // Animate in
-            setTimeout(() => {
-                newsElement.style.transition = 'all 0.3s ease';
-                newsElement.style.opacity = '1';
-                newsElement.style.transform = 'translateY(0)';
-            }, 10);
-            
-            // Keep only last 4 news items
-            while (newsFeed.children.length > 4) {
-                newsFeed.removeChild(newsFeed.lastChild);
-            }
-        }
-
-        // Notification system
-        function showNotification(message, type = 'info') {
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-                position: fixed;
-                top: 20px;
-                right: 20px;
-                padding: 1rem 1.5rem;
-                background: ${type === 'success' ? 'rgba(16, 185, 129, 0.9)' : type === 'warning' ? 'rgba(245, 158, 11, 0.9)' : 'rgba(99, 102, 241, 0.9)'};
-                color: white;
-                border-radius: 8px;
-                font-weight: 500;
-                z-index: 1000;
-                transform: translateX(400px);
-                transition: all 0.3s ease;
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-            `;
-            notification.textContent = message;
-            
-            document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.style.transform = 'translateX(0)';
-            }, 10);
-            
-            setTimeout(() => {
-                notification.style.transform = 'translateX(400px)';
-                setTimeout(() => {
-                    document.body.removeChild(notification);
-                }, 300);
-            }, 3000);
-        }
-
-        // News item click handler
-        document.addEventListener('click', function(e) {
-            if (e.target.closest('.news-item')) {
-                const newsItem = e.target.closest('.news-item');
-                const title = newsItem.querySelector('.news-title').textContent;
-                showNotification(`Opening: ${title}`, 'info');
-            }
-        });
-
-        // Keyboard shortcuts
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && e.ctrlKey) {
-                controlBot(botRunning ? 'stop' : 'start');
-            }
-            
-            if (e.key >= '1' && e.key <= '4') {
-                const chartTypes = ['price', 'volume', 'rsi', 'macd'];
-                const chartType = chartTypes[parseInt(e.key) - 1];
-                if (chartType) {
-                    // Simulate click on the corresponding tab
-                    const tabs = document.querySelectorAll('.chart-tab');
-                    if (tabs[parseInt(e.key) - 1]) {
-                        tabs[parseInt(e.key) - 1].click();
-                    }
-                }
-            }
-        });
-
-        // Add some loading animations on startup
-        window.addEventListener('load', function() {
-            document.querySelectorAll('.card').forEach((card, index) => {
-                card.style.opacity = '0';
-                card.style.transform = 'translateY(20px)';
-                setTimeout(() => {
-                    card.style.transition = 'all 0.5s ease';
-                    card.style.opacity = '1';
-                    card.style.transform = 'translateY(0)';
-                }, index * 100);
-            });
-        });
+      // Hide loading screen when React app loads
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          const loadingScreen = document.getElementById('loading-screen');
+          if (loadingScreen) {
+            loadingScreen.classList.add('hidden');
+            setTimeout(function() {
+              loadingScreen.remove();
+            }, 500);
+          }
+        }, 1000);
+      });
     </script>
-</body>
-</html>
+  </body>
+</html>screen {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+        transition: opacity 0.5s ease-out;
+      }
+      
+      .loading-screen.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      
+      .loading-logo {
+        font-size: 2.5rem;
+        font-weight: 800;
+        background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 2rem;
+        animation: pulse 2s infinite;
+      }
+      
+      .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 4px solid #1e293b;
+        border-top: 4px solid #6366f1;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      
+      .loading-

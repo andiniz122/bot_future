@@ -1983,7 +1983,7 @@ def get_debug_system_status():
         debug_info = {
             "timestamp": current_time.isoformat(),
             "system_overview": {
-                "api_version": SYSTEM_INFO["version"],
+                "api_version": SYSTEM_INFO['version'],
                 "environment": ENVIRONMENT.upper() if ENVIRONMENT else "NOT_SET",
                 "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
             },
@@ -2393,45 +2393,56 @@ async def get_financial_data_by_period(period: str):
                         if hasattr(hist_cleaned.index, 'tz_localize'):
                             hist_cleaned.index = hist_cleaned.index.tz_localize(None)
                         
+                        # IMPORTANTE: Garantir que os dados estejam no formato correto
                         prices = hist_cleaned['Close'].tolist()
                         volumes = hist_cleaned['Volume'].tolist()
                         opens = hist_cleaned['Open'].tolist()
                         highs = hist_cleaned['High'].tolist()
                         lows = hist_cleaned['Low'].tolist()
-                        volume_colors = hist_cleaned['price_direction'].tolist()
-                        asset_dates = hist_cleaned.index.map(lambda x: x.isoformat()).tolist()
-                        
-                        logger.info(f"DEBUG: {asset_name} - Successfully processed {len(prices)} data points for chart with OHLCV.")
+                        volume_colors = hist_cleaned.get('price_direction', ['neutral'] * len(prices)).tolist() # Use .get with default
+                                        
+                        # Datas no formato ISO string
+                        asset_dates = hist_cleaned.index.strftime('%Y-%m-%dT%H:%M:%S').tolist()
+                                        
+                        # MACD
+                        macd_values = []
+                        macd_signal_values = []
+                        macd_hist_values = []
 
-                        if len(hist_cleaned['Close']) >= 34: 
-                            macd, macdsignal, macdhist = talib.MACD(
-                                hist_cleaned['Close'].values.astype(np.float64),
-                                fastperiod=12, 
-                                slowperiod=26, 
-                                signalperiod=9
-                            )
-                            
-                            macd_values_raw = np.nan_to_num(macd).tolist()
-                            macd_signal_values_raw = np.nan_to_num(macdsignal).tolist()
-                            macd_hist_values_raw = np.nan_to_num(macdhist).tolist()
-
-                            min_len_data = min(len(prices), len(macd_values_raw), len(macd_signal_values_raw), len(macd_hist_values_raw))
-                            
-                            if min_len_data > 0:
-                                prices = prices[-min_len_data:]
-                                volumes = volumes[-min_len_data:]
-                                opens = opens[-min_len_data:]
-                                highs = highs[-min_len_data:]
-                                lows = lows[-min_len_data:]
-                                volume_colors = volume_colors[-min_len_data:]
-                                asset_dates = asset_dates[-min_len_data:]
-                                macd_values = macd_values_raw[-min_len_data:]
-                                macd_signal_values = macd_signal_values_raw[-min_len_data:]
-                                macd_hist_values = macd_hist_values_raw[-min_len_data:]
+                        if len(hist_cleaned) >= 34: 
+                            try:
+                                macd, macdsignal, macdhist = talib.MACD(
+                                    hist_cleaned['Close'].values.astype(np.float64),
+                                    fastperiod=12, 
+                                    slowperiod=26, 
+                                    signalperiod=9
+                                )
                                 
-                                logger.info(f"DEBUG: {asset_name} - MACD calculated and aligned. Prices length: {len(prices)}, MACD length: {len(macd_values)}")
-                            else:
-                                logger.warning(f"DEBUG: {asset_name} - MACD calculation resulted in no valid points")
+                                # Converter NaN para 0 e para listas Python
+                                macd_values_raw = np.nan_to_num(macd).tolist()
+                                macd_signal_values_raw = np.nan_to_num(macdsignal).tolist()
+                                macd_hist_values_raw = np.nan_to_num(macdhist).tolist()
+
+                                min_len_data = min(len(prices), len(macd_values_raw), len(macd_signal_values_raw), len(macd_hist_values_raw))
+                                
+                                if min_len_data > 0:
+                                    prices = prices[-min_len_data:]
+                                    volumes = volumes[-min_len_data:]
+                                    opens = opens[-min_len_data:]
+                                    highs = highs[-min_len_data:]
+                                    lows = lows[-min_len_data:]
+                                    volume_colors = volume_colors[-min_len_data:]
+                                    asset_dates = asset_dates[-min_len_data:]
+                                    macd_values = macd_values_raw[-min_len_data:]
+                                    macd_signal_values = macd_signal_values_raw[-min_len_data:]
+                                    macd_hist_values = macd_hist_values_raw[-min_len_data:]
+                                    
+                                    logger.info(f"DEBUG: {asset_name} - MACD calculated and aligned. Prices length: {len(prices)}, MACD length: {len(macd_values)}")
+                                else:
+                                    logger.warning(f"DEBUG: {asset_name} - MACD calculation resulted in no valid points")
+                                    macd_values, macd_signal_values, macd_hist_values = [], [], []
+                            except Exception as macd_error:
+                                logger.warning(f"MACD calculation failed for {asset_name}: {macd_error}")
                                 macd_values, macd_signal_values, macd_hist_values = [], [], []
 
                         else:
@@ -2444,24 +2455,27 @@ async def get_financial_data_by_period(period: str):
 
                 avg_volume = sum(volumes) / len(volumes) if volumes else 0
 
+                # Estrutura correta para o frontend
                 data[asset_name] = {
                     'name': asset_name.capitalize(),
                     'symbol': symbol_yf if symbol_yf else symbol_gateio,
-                    'price_data': prices,
-                    'volume_data': volumes,
-                    'volume_colors': volume_colors,
-                    'open_data': opens,
-                    'high_data': highs,
-                    'low_data': lows,
+                    'price_data': prices,          # Lista de preços
+                    'volume_data': volumes,        # Lista de volumes
+                    'volume_colors': volume_colors, # Lista de cores
+                    'open_data': opens,            # Lista de aberturas
+                    'high_data': highs,            # Lista de máximas
+                    'low_data': lows,              # Lista de mínimas
                     'volume_avg_formatted': format_volume(int(avg_volume)),
-                    'dates': asset_dates,
-                    'macd_data': macd_values,
-                    'macd_signal_data': macd_signal_values,
-                    'macd_hist_data': macd_hist_values
+                    'dates': asset_dates,          # Datas formatadas
+                    'macd_data': macd_values,      # MACD
+                    'macd_signal_data': macd_signal_values, # Sinal MACD
+                    'macd_hist_data': macd_hist_values      # Histograma MACD
                 }
+                logger.info(f"✅ {asset_name}: {len(prices)} points processed")
 
             except Exception as e:
                 logger.error(f"❌ Error processing {asset_name} data: {e}", exc_info=True)
+                # Fallback com estrutura correta
                 data[asset_name] = {
                     'name': asset_name.capitalize(),
                     'symbol': symbol_yf if symbol_yf else symbol_gateio,
@@ -2478,40 +2492,27 @@ async def get_financial_data_by_period(period: str):
                     'macd_hist_data': []
                 }
 
+        # Encontrar datas comuns (usar a maior lista de datas disponível)
         all_asset_dates_lists = [asset_data['dates'] for asset_data in data.values() if asset_data['dates']]
         if all_asset_dates_lists:
             common_dates = max(all_asset_dates_lists, key=len)
         else:
             common_dates = []
 
+        # RESPOSTA NO FORMATO ESPERADO PELO FRONTEND
         response = {
             "period": period,
             "data_points": len(common_dates),
-            "dates": common_dates,
-            "assets": {
-                asset_name: {
-                    "name": asset_data['name'],
-                    "symbol": asset_data['symbol'],
-                    "price_data": asset_data['price_data'],
-                    "volume_data": asset_data['volume_data'],
-                    "volume_colors": asset_data['volume_colors'],
-                    "open_data": asset_data['open_data'],
-                    "high_data": asset_data['high_data'],
-                    "low_data": asset_data['low_data'],
-                    "volume_avg_formatted": asset_data['volume_avg_formatted'],
-                    "macd_data": asset_data['macd_data'],
-                    "macd_signal_data": asset_data['macd_signal_data'],
-                    "macd_hist_data": asset_data['macd_hist_data']
-                } for asset_name, asset_data in data.items()
-            },
-            "timestamp": datetime.now().isoformat()
+            "dates": common_dates,  # ← IMPORTANTE: Array de datas
+            "assets": data,         # ← IMPORTANTE: Objeto com dados dos ativos
+            "timestamp": datetime.now().isoformat(),
+            "status": "success"
         }
-
-        logger.info(f"✅ Data fetched for {period}: {len(common_dates)} common points.")
+        logger.info(f"✅ Response prepared: {len(common_dates)} data points for {len(data)} assets")
         return response
-
     except Exception as e:
         logger.error(f"❌ Critical error fetching financial data for {period}: {e}", exc_info=True)
+        # Resposta de erro com estrutura correta
         return {
             "error": f"Failed to fetch financial data for {period}: {str(e)}",
             "period": period,
@@ -2522,7 +2523,8 @@ async def get_financial_data_by_period(period: str):
                 'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []},
                 'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []}
             },
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "status": "error"
         }
 
 @app.get("/api/sentiment")
@@ -3578,7 +3580,7 @@ def get_system_status():
         return {
             "timestamp": current_time.isoformat(),
             "status": "healthy",
-            "version": SYSTEM_INFO["version"],
+            "version": SYSTEM_INFO['version'],
             "uptime": f"{uptime_hours_system}h {uptime_minutes_system}m",
             "uptime_seconds": uptime_seconds_system,
             "system_health": {
@@ -3748,7 +3750,7 @@ async def startup_event():
     
     if not real_trading_bot:
         logger.info("💡 To enable full trading bot functionality:")
-        logger.info("   1. Ensure GATE_TESTNET_API_KEY, GATE_TESTNET_API_SECRET, FRED_API_KEY, NEWS_API_KEY, CRYPTOPANIC_API_KEY are configured in .env and config.py")
+        logger.info("   1. Ensure GATE_TESTNET_API_KEY, GATE_TESTNET_API_SECRET, FRED_API_KEY, NEWS_API_KEY, CRYPTOPANIC_API_KEY are configured in .env file")
         logger.info("   2. Verify API keys have proper permissions on respective platforms")
         logger.info("   3. Restart the application")
 
