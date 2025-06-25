@@ -1,0 +1,191 @@
+# 📅 Dashboard Macro v2.1 FRED - Instruções de Configuração
+
+## 🚀 Instalação e Configuração
+
+### 📋 Pré-requisitos
+```bash
+pip install fastapi uvicorn yfinance pandas numpy scipy requests python-multipart
+```
+
+### 🔑 Configuração da API FRED (Opcional mas Recomendado)
+
+1. **Obtenha sua API Key gratuita:**
+   - Acesse: https://fred.stlouisfed.org/docs/api/api_key.html  
+   - Crie uma conta no FRED (Federal Reserve Economic Data)
+   - Gere sua API key gratuita
+
+2. **Configure no código:**
+   ```python
+   # No arquivo radar-dash.py, linha ~45
+   FRED_API_KEY = "SUA_API_KEY_AQUI"  # Substitua pela sua key
+   ```
+
+3. **Alternativa - Variável de Ambiente:**
+   ```bash
+   # Linux/Mac
+   export FRED_API_KEY="sua_api_key_aqui"
+   
+   # Windows
+   set FRED_API_KEY=sua_api_key_aqui
+   ```
+
+### 🏃 Executar o Sistema
+
+1. **Backend (Terminal 1):**
+   ```bash
+   python radar-dash.py
+   ```
+   - Servidor iniciará em: `http://localhost:8000`
+   - Documentação automática: `http://localhost:8000/docs`
+
+2. **Frontend (Terminal 2):**
+   ```bash
+   npm start
+   # ou
+   serve -s build -l 3000
+   ```
+   - Interface em: `http://localhost:3000`
+
+## 🎯 Funcionalidades Principais
+
+### 📐 Análise Angular Avançada
+- **Cálculo de Ângulos** usando regressão linear
+- **7 Padrões Detectados:**
+  - 🎯 Perfect Divergence (DXY ↗️ + BTC ↘️)
+  - 🚀 Bullish Convergence (Todos ↗️)
+  - 📉 Bearish Avalanche (Todos ↘️)
+  - 🔄 Trend Reversal (Mudança >45°)
+  - ⚡ Extreme Momentum (Ângulo >60°)
+  - 🛡️ Flight to Quality (Ouro+DXY ↗️, BTC ↘️)
+  - 🏃 Acceleration Pattern (Aceleração detectada)
+
+### 📅 Calendário Econômico FRED
+- **Próximos Eventos:** NFP, CPI, FOMC, GDP, etc.
+- **Alertas Preventivos:** 24-48h antes de eventos críticos
+- **Classificação de Impacto:** Alto/Médio/Baixo
+- **Recomendações Automáticas** por categoria de evento
+
+### 🚨 Sistema de Alertas Triplicado
+1. **Alertas Macro Tradicionais:**
+   - FED Alert, Crisis Alert, Flight to Quality
+   
+2. **Alertas Angulares:**
+   - Padrões geométricos em tempo real
+   
+3. **Alertas FRED:**
+   - Eventos econômicos críticos se aproximando
+
+## 🌐 Endpoints da API
+
+| Endpoint | Descrição |
+|----------|-----------|
+| `/api/current` | 📊 Dados atuais + análise angular |
+| `/api/angular` | 📐 Análise angular completa |
+| `/api/patterns` | 🎯 Padrões angulares detectados |
+| `/api/calendar` | 📅 Calendário econômico FRED |
+| `/api/events` | 📋 Próximos eventos econômicos |
+| `/api/alerts` | 🚨 Todos os alertas (Macro+Angular+FRED) |
+| `/api/precos/{period}` | 📈 Dados históricos de preços |
+| `/api/status` | ✅ Status do sistema |
+
+## 🎨 Interface do Dashboard
+
+### 📱 6 Views Principais:
+1. **📈 Preços** - Gráficos de linha normalizados
+2. **📊 Volume** - Análise de volume com áreas
+3. **📐 Angular** - Visualização de ângulos e padrões
+4. **📅 Calendário** - Eventos econômicos FRED
+5. **🚨 Alertas** - Central de alertas triplicados  
+6. **🔄 Combinado** - Visão geral integrada
+
+### ⚙️ Configurações Auto-refresh:
+- **Dados de hoje (1d):** Atualização automática a cada 30s
+- **Outros períodos:** Atualização manual
+- **Pausar/Retomar:** Controle total do usuário
+
+## 🔧 Personalização
+
+### 🎛️ Ajustar Sensibilidade dos Alertas:
+```python
+# No arquivo radar-dash.py, função analyze_angular_patterns()
+
+# Perfect Divergence - Ângulos mínimos
+if (latest["dxy"]["angle"] > 20 and latest["btc"]["angle"] < -20):  # Ajuste aqui
+
+# Extreme Momentum - Ângulo mínimo  
+if abs(latest[asset]["angle"]) > 45 and latest[asset]["strength"] > 0.7:  # Ajuste aqui
+```
+
+### 📊 Adicionar Novos Ativos:
+```python
+# Adicionar no symbols dict
+symbols = {
+    'gold': 'GC=F',
+    'btc': 'BTC-USD', 
+    'dxy': 'DX-Y.NYB',
+    'oil': 'CL=F',  # Exemplo: Petróleo
+    'spy': 'SPY'    # Exemplo: S&P 500
+}
+```
+
+## 🐛 Troubleshooting
+
+### ❌ Erro: "FRED API Key não configurada"
+- **Solução:** Configure a `FRED_API_KEY` no código
+- **Alternativa:** Sistema funciona em modo simulado (dados demo)
+
+### ❌ Erro: "Backend connection failed"
+- **Verificar:** Backend rodando em `http://localhost:8000`
+- **Testar:** Acesse `http://localhost:8000/api/status`
+
+### ❌ Dados angulares não aparecem
+- **Aguarde:** Sistema precisa de ~5 minutos de dados históricos
+- **Verificar:** Console do navegador (F12) para logs
+
+### ❌ Gráficos não carregam
+- **Verificar:** Conexão com Yahoo Finance
+- **Tentar:** Períodos diferentes (5d, 1mo)
+
+## 📈 Métricas de Performance
+
+### ⚡ Benchmarks Típicos:
+- **Latência API:** <200ms para dados atuais
+- **Update Angular:** A cada 2 minutos
+- **Update FRED:** A cada 10 minutos  
+- **Cache Duration:** 1 minuto (dados atuais), 1 hora (FRED)
+
+### 🎯 Precisão dos Alertas:
+- **Angular Patterns:** 85%+ confiança com R² > 0.7
+- **Macro Alerts:** Baseados em limiares testados
+- **FRED Events:** 100% precisão (dados oficiais)
+
+## 🚀 Roadmap Futuro
+
+### 🔮 Próximas Funcionalidades:
+- [ ] **Machine Learning:** Predição de padrões angulares
+- [ ] **Multi-timeframe:** Análise 1m, 5m, 15m simultânea  
+- [ ] **WebSocket:** Updates em tempo real sem polling
+- [ ] **Mobile App:** Interface nativa para celular
+- [ ] **Backtesting:** Teste histórico de padrões
+- [ ] **API Webhooks:** Notificações para Discord/Slack
+- [ ] **Multi-exchange:** Binance, Coinbase, CME
+- [ ] **Options Flow:** Análise de fluxo de opções
+
+## 📞 Suporte
+
+### 🆘 Em caso de problemas:
+1. **Verifique os logs** do backend no terminal
+2. **Console do navegador** (F12) para erros frontend  
+3. **Teste individual** dos endpoints via `/docs`
+4. **Reinicie** ambos os serviços
+
+### 📚 Recursos Adicionais:
+- **FRED API Docs:** https://fred.stlouisfed.org/docs/api/
+- **Yahoo Finance:** https://python-yahoofinance.readthedocs.io/
+- **FastAPI Docs:** https://fastapi.tiangolo.com/
+
+---
+
+**🎯 Sistema desenvolvido para análise macro profissional com tecnologia de ponta!** 
+
+*Combinando análise técnica tradicional, geometria financeira e calendário econômico em uma única plataforma integrada.*

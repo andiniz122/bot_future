@@ -1,0 +1,15 @@
+/* Definições CSS básicas para o corpo da página */
+body {
+  margin: 0; /* Remove margem padrão do navegador */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif; /* Define uma fonte de sistema */
+  -webkit-font-smoothing: antialiased; /* Suavização de fonte para WebKit */
+  -moz-osx-font-smoothing: grayscale; /* Suavização de fonte para Firefox */
+}
+
+/* Definição CSS básica para elementos de código */
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace; /* Define uma fonte monoespaçada para código */
+}

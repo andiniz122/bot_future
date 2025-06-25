@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  trading-dashboard:
+    build: .
+    container_name: trading-dashboard-pro
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=5173
+      - REACT_APP_API_BASE_URL=http://62.72.1.122:8000/api
+      - REACT_APP_WS_BASE_URL=ws://62.72.1.122:8000
+    networks:
+      - trading-network
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  trading-network:
+    driver: bridge
+    name: trading-pro-network
+
+volumes:
+  logs:
+    driver: local

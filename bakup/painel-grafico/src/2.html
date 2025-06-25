@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard v6.0</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background: #111827;
+        }
+        .card {
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+        }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .badge-success { background: #059669; color: #d1fae5; }
+        .badge-danger { background: #dc2626; color: #fee2e2; }
+        .badge-warning { background: #d97706; color: #fef3c7; }
+        .badge-info { background: #2563eb; color: #dbeafe; }
+        .badge-default { background: #4b5563; color: #f3f4f6; }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+    <!-- Header -->
+    <header class="bg-gray-800 border-b border-gray-700 p-4">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center">
+                <svg class="h-8 w-8 text-blue-400 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                <h1 class="text-2xl font-bold">Trading Dashboard</h1>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="flex items-center">
+                    <span class="status-dot bg-green-400 mr-2" id="wsStatus"></span>
+                    <span class="text-sm text-gray-400" id="wsStatusText">WebSocket Conectando...</span>
+                </div>
+                <span class="badge badge-info">v6.0</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Navigation -->
+    <nav class="bg-gray-800 border-b border-gray-700">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="flex space-x-8">
+                <button onclick="showTab('overview')" class="tab-btn flex items-center px-3 py-4 text-sm font-medium border-b-2 border-blue-400 text-blue-400" data-tab="overview">
+                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                    Visão Geral
+                </button>
+                <button onclick="showTab('recommendations')" class="tab-btn flex items-center px-3 py-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white" data-tab="recommendations">
+                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Recomendações
+                </button>
+                <button onclick="showTab('bot')" class="tab-btn flex items-center px-3 py-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white" data-tab="bot">
+                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                    Trading Bot
+                </button>
+                <button onclick="showTab('alerts')" class="tab-btn flex items-center px-3 py-4 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white" data-tab="alerts">
+                    <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    Alertas
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-6">
+        <!-- Overview Tab -->
+        <div id="overview" class="tab-content space-y-6">
+            <!-- Status Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div class="card p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-400">Status da API</p>
+                            <p class="text-2xl font-bold text-green-400" id="apiStatus">Carregando...</p>
+                        </div>
+                        <svg class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="card p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-400">WebSocket</p>
+                            <p class="text-2xl font-bold" id="wsStatusDisplay">Conectando...</p>
+                        </div>
+                        <svg id="wsIcon" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="card p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-400">Bot Status</p>
+                            <p class="text-2xl font-bold" id="botStatus">Carregando...</p>
+                        </div>
+                        <svg class="h-8 w-8" id="botIcon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                        </svg>
+                    </div>
+                </div>
+
+                <div class="card p-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-400">Alertas Ativos</p>
+                            <p class="text-2xl font-bold text-blue-400" id="alertsCount">0</p>
+                        </div>
+                        <svg class="h-8 w-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Prices -->
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                    Preços em Tempo Real
+                </h3>
+                <div id="pricesContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Preços serão carregados aqui -->
+                </div>
+            </div>
+
+            <!-- Market Sentiment -->
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Sentimento de Mercado (Gate.io)
+                </h3>
+                <div id="sentimentContainer" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Sentimento será carregado aqui -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Recommendations Tab -->
+        <div id="recommendations" class="tab-content space-y-6" style="display: none;">
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Recomendações de Backtest
+                </h3>
+                <div id="recommendationsContainer">
+                    <!-- Recomendações serão carregadas aqui -->
+                </div>
+            </div>
+
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    Sinais ao Vivo do Bot
+                </h3>
+                <div id="signalsContainer">
+                    <!-- Sinais serão carregados aqui -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Bot Tab -->
+        <div id="bot" class="tab-content space-y-6" style="display: none;">
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-white flex items-center">
+                        <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                        </svg>
+                        Controle do Trading Bot
+                    </h3>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="startBot()" id="startBtn" class="flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium text-sm">
+                            <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h1m4 0h1m-6 4h8m2-10H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V6a2 2 0 00-2-2z" />
+                            </svg>
+                            Iniciar
+                        </button>
+                        <button onclick="stopBot()" id="stopBtn" class="flex items-center px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium text-sm">
+                            <svg class="mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Parar
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="botControlsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <!-- Controles do bot serão carregados aqui -->
+                </div>
+            </div>
+
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Posições Ativas
+                </h3>
+                <div id="positionsContainer">
+                    <!-- Posições serão carregadas aqui -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Tab -->
+        <div id="alerts" class="tab-content space-y-6" style="display: none;">
+            <div class="card p-6">
+                <h3 class="text-lg font-semibold text-white mb-4 flex items-center">
+                    <svg class="mr-2 h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.268 18.5c-.77.833.192 2.5 1.732 2.5z" />
+                    </svg>
+                    Sistema de Alertas
+                </h3>
+                <div id="alertsContainer">
+                    <!-- Alertas serão carregados aqui -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 border-t border-gray-700 p-4">
+        <div class="max-w-7xl mx-auto text-center text-sm text-gray-400">
+            Trading Dashboard v6.0 - Sistema de Trading Automatizado | 
+            <span class="ml-2" id="lastUpdate">
+                Última atualização: <span id="updateTime"></span>
+            </span>
+        </div>
+    </footer>
+
+    <script>
+        // Configurações
+        const API_BASE = 'http://localhost:8000';
+        const WS_BASE = 'ws://localhost:8000';
+        
+        // Estados globais
+        let wsConnection = null;
+        let currentData = null;
+        let sentimentData = null;
+        let botStatusData = null;
+
+        // Utilitários
+        function formatPrice(price) {
+            return typeof price === 'number' ? 
+                price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 
+                '0.00';
+        }
+
+        function formatPercent(percent) {
+            return typeof percent === 'number' ? `${percent.toFixed(2)}%` : '0.00%';
+        }
+
+        function formatTime(dateString) {
+            return new Date(dateString).toLocaleTimeString();
+        }
+
+        function getBadgeClass(variant) {
+            const variants = {
+                success: 'badge-success',
+                danger: 'badge-danger',
+                warning: 'badge-warning',
+                info: 'badge-info',
+                default: 'badge-default'
+            };
+            return variants[variant] || variants.default;
+        }
+
+        // Navegação entre abas
+        function showTab(tabName) {
+            // Esconde todas as abas
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.style.display = 'none';
+            });
+            
+            // Remove classe ativa de todos os botões
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('border-blue-400', 'text-blue-400');
+                btn.classList.add('border-transparent', 'text-gray-400', 'hover:text-white');
+            });
+            
+            // Mostra a aba selecionada
+            document.getElementById(tabName).style.display = 'block';
+            
+            // Adiciona classe ativa ao botão
+            const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+            if (activeBtn) {
+                activeBtn.classList.add('border-blue-400', 'text-blue-400');
+                activeBtn.classList.remove('border-transparent', 'text-gray-400', 'hover:text-white');
+            }
+        }
+
+        // WebSocket
+        function connectWebSocket() {
+            try {
+                wsConnection = new WebSocket(`${WS_BASE}/ws/sentiment`);
+                
+                wsConnection.onopen = function() {
+                    console.log('WebSocket conectado');
+                    updateWSStatus(true);
+                };
+                
+                wsConnection.onmessage = function(event) {
+                    try {
+                        sentimentData = JSON.parse(event.data);
+                        updateSentimentDisplay();
+                    } catch (e) {
+                        console.error('Erro ao parsear mensagem WebSocket:', e);
+                    }
+                };
+                
+                wsConnection.onclose = function() {
+                    console.log('WebSocket desconectado');
+                    updateWSStatus(false);
+                    // Reconectar após 5 segundos
+                    setTimeout(connectWebSocket, 5000);
+                };
+                
+                wsConnection.onerror = function(error) {
+                    console.error('Erro WebSocket:', error);
+                    updateWSStatus(false);
+                };
+            } catch (error) {
+                console.error('Erro ao conectar WebSocket:', error);
+                updateWSStatus(false);
+                setTimeout(connectWebSocket, 5000);
+            }
+        }
+
+        function updateWSStatus(connected) {
+            const statusDot = document.getElementById('wsStatus');
+            const statusText = document.getElementById('wsStatusText');
+            const statusDisplay = document.getElementById('wsStatusDisplay');
+            const wsIcon = document.getElementById('wsIcon');
+            
+            if (connected) {
+                statusDot.className = 'status-dot bg-green-400 mr-2';
+                statusText.textContent = 'WebSocket Conectado';
+                statusDisplay.textContent = 'Conectado';
+                statusDisplay.className = 'text-2xl font-bold text-green-400';
+                wsIcon.className = 'h-8 w-8 text-green-400';
+            } else {
+                statusDot.className = 'status-dot bg-red-400 mr-2';
+                statusText.textContent = 'WebSocket Offline';
+                statusDisplay.textContent = 'Offline';
+                statusDisplay.className = 'text-2xl font-bold text-red-400';
+                wsIcon.className = 'h-8 w-8 text-red-400';
+            }
+        }
+
+        // API calls
+        async function fetchAPI(endpoint) {
+            try {
+                const response = await fetch(`${API_BASE}${endpoint}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                console.error(`Erro ao buscar ${endpoint}:`, error);
+                return null;
+            }
+        }
+
+        // Atualizar displays
+        function updatePricesDisplay() {
+            if (!currentData || !currentData.assets) return;
+            
+            const container = document.getElementById('pricesContainer');
+            container.innerHTML = '';
+            
+            Object.entries(currentData.assets).forEach(([key, asset]) => {
+                const isPositive = asset.change >= 0;
+                const trendBadge = asset.angular?.trend === 'STRONG_UP' ? 'success' : 
+                                 asset.angular?.trend === 'STRONG_DOWN' ? 'danger' : 'default';
+                
+                container.innerHTML += `
+                    <div class="card p-4 bg-gray-900">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="font-medium text-white">${asset.name}</h4>
+                                <p class="text-sm text-gray-400">${asset.symbol}</p>
+                                <div class="mt-2">
+                                    <span class="badge ${getBadgeClass(trendBadge)}">${asset.angular?.trend || 'NEUTRAL'}</span>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <div class="text-lg font-bold text-white">$${formatPrice(asset.current_price)}</div>
+                                <div class="text-sm flex items-center justify-end ${isPositive ? 'text-green-400' : 'text-red-400'}">
+                                    <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isPositive ? 'M7 14l9-9 9 9M5 12l9-9 9 9' : 'M17 10l-9 9-9-9M19 12l-9 9-9-9'}" />
+                                    </svg>
+                                    ${formatPercent(asset.change_percent)}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+
+        function updateSentimentDisplay() {
+            if (!sentimentData) return;
+            
+            const container = document.getElementById('sentimentContainer');
+            container.innerHTML = `
+                <div>
+                    <h4 class="font-medium text-white mb-2">Bitcoin (BTC/USDT)</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Compradores:</span>
+                            <span class="text-green-400 font-medium">${sentimentData.btc?.buyers.toFixed(1)}%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Vendedores:</span>
+                            <span class="text-red-400 font-medium">${sentimentData.btc?.sellers.toFixed(1)}%</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Tendência:</span>
+                            <span class="badge ${getBadgeClass(sentimentData.btc?.trend === 'BULLISH' ? 'success' : sentimentData.btc?.trend === 'BEARISH' ? 'danger' : 'default')}">${sentimentData.btc?.trend}</span>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <h4 class="font-medium text-white mb-2">Medo & Ganância</h4>
+                    <div class="space-y-2">
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Índice:</span>
+                            <span class="text-blue-400 font-medium">${sentimentData.fear_greed_index}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span class="text-gray-400">Humor:</span>
+                            <span class="badge ${getBadgeClass(sentimentData.market_mood?.includes('GREED') ? 'success' : sentimentData.market_mood?.includes('FEAR') ? 'danger' : 'warning')}">${sentimentData.market_mood}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Funções do bot
+        async function startBot() {
+            const result = await fetchAPI('/api/trading-bot/start');
+            if (result) {
+                console.log('Bot iniciado:', result);
+                loadBotData();
+            }
+        }
+
+        async function stopBot() {
+            const result = await fetchAPI('/api/trading-bot/stop');
+            if (result) {
+                console.log('Bot parado:', result);
+                loadBotData();
+            }
+        }
+
+        // Carregar dados
+        async function loadCurrentData() {
+            currentData = await fetchAPI('/api/current');
+            if (currentData) {
+                document.getElementById('apiStatus').textContent = 'Online';
+                document.getElementById('alertsCount').textContent = currentData.analysis?.total_alerts || 0;
+                updatePricesDisplay();
+            }
+        }
+
+        async function loadRecommendations() {
+            const recommendations = await fetchAPI('/api/backtest-recommendations');
+            if (recommendations?.recommendations) {
+                const container = document.getElementById('recommendationsContainer');
+                if (recommendations.recommendations.length > 0) {
+                    container.innerHTML = recommendations.recommendations.slice(0, 5).map((rec, index) => `
+                        <div class="card p-4 bg-gray-900 mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="font-medium text-white">${rec.pattern_name}</h4>
+                                <div class="flex items-center space-x-2">
+                                    <span class="badge ${getBadgeClass(rec.trade_type === 'LONG' ? 'success' : 'danger')}">${rec.trade_type}</span>
+                                    <span class="badge ${getBadgeClass('info')}">${(rec.confidence * 100).toFixed(0)}%</span>
+                                </div>
+                            </div>
+                            <p class="text-sm text-gray-400 mb-2">${rec.description}</p>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div><span class="text-gray-400">Ativo:</span> <span class="text-white ml-1">${rec.asset}</span></div>
+                                <div><span class="text-gray-400">Entrada:</span> <span class="text-white ml-1">$${rec.entry_price?.toLocaleString()}</span></div>
+                                <div><span class="text-gray-400">Retorno:</span> <span class="text-green-400 ml-1">${rec.expected_return}</span></div>
+                                <div><span class="text-gray-400">Timeframe:</span> <span class="text-white ml-1">${rec.timeframe}</span></div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">Nenhuma recomendação disponível no momento</div>';
+                }
+            }
+        }
+
+        async function loadSignals() {
+            const signals = await fetchAPI('/api/trading-bot/signals');
+            if (signals?.signals) {
+                const container = document.getElementById('signalsContainer');
+                if (signals.signals.length > 0) {
+                    container.innerHTML = signals.signals.slice(0, 5).map(signal => `
+                        <div class="card p-4 bg-gray-900 mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="font-medium text-white">${signal.symbol}</h4>
+                                <div class="flex items-center space-x-2">
+                                    <span class="badge ${getBadgeClass(signal.signal_type === 'LONG' ? 'success' : 'danger')}">${signal.signal_type}</span>
+                                    <span class="badge ${getBadgeClass('info')}">${(signal.confidence * 100).toFixed(0)}%</span>
+                                    <span class="badge ${getBadgeClass(signal.status === 'ACTIVE' ? 'success' : 'warning')}">${signal.status}</span>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div><span class="text-gray-400">Estratégia:</span> <span class="text-white ml-1">${signal.strategy_name}</span></div>
+                                <div><span class="text-gray-400">Entrada:</span> <span class="text-white ml-1">$${signal.entry_price?.toLocaleString()}</span></div>
+                                <div><span class="text-gray-400">R/R:</span> <span class="text-green-400 ml-1">${signal.risk_reward_ratio}:1</span></div>
+                                <div><span class="text-gray-400">Expira:</span> <span class="text-yellow-400 ml-1">${signal.expires_in_minutes?.toFixed(0)}min</span></div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">Nenhum sinal ativo no momento</div>';
+                }
+            }
+        }
+
+        async function loadBotData() {
+            const status = await fetchAPI('/api/trading-bot/status');
+            const positions = await fetchAPI('/api/trading-bot/positions');
+            
+            if (status) {
+                botStatusData = status;
+                const statusElement = document.getElementById('botStatus');
+                const iconElement = document.getElementById('botIcon');
+                
+                if (status.running) {
+                    statusElement.textContent = 'Ativo';
+                    statusElement.className = 'text-2xl font-bold text-green-400';
+                    iconElement.className = 'h-8 w-8 text-green-400';
+                } else {
+                    statusElement.textContent = 'Parado';
+                    statusElement.className = 'text-2xl font-bold text-yellow-400';
+                    iconElement.className = 'h-8 w-8 text-yellow-400';
+                }
+                
+                // Atualizar controles
+                const controlsContainer = document.getElementById('botControlsContainer');
+                controlsContainer.innerHTML = `
+                    <div class="text-center">
+                        <p class="text-sm text-gray-400">Status</p>
+                        <p class="text-lg font-bold ${status.running ? 'text-green-400' : 'text-yellow-400'}">${status.running ? 'Ativo' : 'Parado'}</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-sm text-gray-400">Posições Ativas</p>
+                        <p class="text-lg font-bold text-blue-400">${positions?.total_positions || 0}</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-sm text-gray-400">Sinais Ativos</p>
+                        <p class="text-lg font-bold text-purple-400">${status.active_signals_count || 0}</p>
+                    </div>
+                `;
+            }
+            
+            if (positions?.positions) {
+                const container = document.getElementById('positionsContainer');
+                if (positions.positions.length > 0) {
+                    container.innerHTML = positions.positions.map(position => `
+                        <div class="card p-4 bg-gray-900 mb-4">
+                            <div class="flex items-center justify-between mb-2">
+                                <h4 class="font-medium text-white">${position.symbol}</h4>
+                                <div class="flex items-center space-x-2">
+                                    <span class="badge ${getBadgeClass(position.side === 'long' ? 'success' : 'danger')}">${position.side.toUpperCase()}</span>
+                                    <span class="badge ${getBadgeClass(position.pnl >= 0 ? 'success' : 'danger')}">${position.pnl >= 0 ? '+' : ''}${position.pnl?.toFixed(2)} USDT</span>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                <div><span class="text-gray-400">Tamanho:</span> <span class="text-white ml-1">${position.size}</span></div>
+                                <div><span class="text-gray-400">Entrada:</span> <span class="text-white ml-1">$${position.entry_price?.toLocaleString()}</span></div>
+                                <div><span class="text-gray-400">Atual:</span> <span class="text-white ml-1">$${position.current_price?.toLocaleString()}</span></div>
+                                <div><span class="text-gray-400">P&L %:</span> <span class="${position.pnl_percent >= 0 ? 'text-green-400' : 'text-red-400'}">${position.pnl_percent >= 0 ? '+' : ''}${position.pnl_percent?.toFixed(2)}%</span></div>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">Nenhuma posição ativa no momento</div>';
+                }
+            }
+        }
+
+        async function loadAlerts() {
+            const alerts = await fetchAPI('/api/alerts');
+            if (alerts?.alerts) {
+                const container = document.getElementById('alertsContainer');
+                if (alerts.alerts.length > 0) {
+                    container.innerHTML = alerts.alerts.slice(0, 10).map(alert => `
+                        <div class="card p-4 bg-gray-900 mb-3">
+                            <div class="flex items-start justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center mb-1">
+                                        <h4 class="font-medium text-white mr-2">${alert.title}</h4>
+                                        <span class="badge ${getBadgeClass(alert.severity === 'HIGH' ? 'danger' : alert.severity === 'MEDIUM' ? 'warning' : 'info')}">${alert.severity}</span>
+                                    </div>
+                                    <p class="text-sm text-gray-400">${alert.message}</p>
+                                </div>
+                                <span class="text-xs text-gray-500">${formatTime(alert.timestamp)}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="text-center text-gray-400 py-8">Nenhum alerta ativo no momento</div>';
+                }
+            }
+        }
+
+        // Atualizar horário
+        function updateTime() {
+            document.getElementById('updateTime').textContent = new Date().toLocaleTimeString();
+        }
+
+        // Inicialização
+        window.onload = function() {
+            console.log('Iniciando Trading Dashboard...');
+            
+            // Conectar WebSocket
+            connectWebSocket();
+            
+            // Carregar dados iniciais
+            loadCurrentData();
+            loadRecommendations();
+            loadSignals();
+            loadBotData();
+            loadAlerts();
+            
+            // Configurar atualizações periódicas
+            setInterval(loadCurrentData, 10000); // 10 segundos
+            setInterval(loadRecommendations, 60000); // 1 minuto
+            setInterval(loadSignals, 15000); // 15 segundos
+            setInterval(loadBotData, 15000); // 15 segundos
+            setInterval(loadAlerts, 30000); // 30 segundos
+            setInterval(updateTime, 1000); // 1 segundo
+            
+            // Atualizar horário inicial
+            updateTime();
+            
+            console.log('Dashboard inicializado com sucesso!');
+        };
+    </script>
+</body>
+</html>

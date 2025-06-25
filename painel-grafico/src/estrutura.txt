@@ -1,0 +1,14 @@
+src/
+├── App.jsx             # Contém a maioria do código: componentes de UI, custom hooks, views, lógica de dados.
+├── index.css           # Estilos globais e base.
+├── main.jsx            # Ponto de entrada (ou index.js), renderiza o App.jsx.
+├── reportWebVitals.js  # Métricas de performance.
+│
+├── assets/             # Imagens, ícones, etc. (permanece separado, pois são arquivos estáticos)
+│   └── images/
+│   └── icons/
+│
+├── utils/              # Funções utilitárias, formatadores de dados (pode permanecer separado se forem funções genéricas e não diretamente acopladas à UI)
+│   └── dataFormatters.js
+│
+└── styles/             # Se você criar mais arquivos CSS ou configurações Tailwind adicionais (permanece separado para organização de estilos)

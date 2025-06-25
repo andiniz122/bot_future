@@ -1,0 +1,51 @@
+{
+  "name": "trading-dashboard-pro",
+  "version": "6.0.0",
+  "private": true,
+  "description": "AI-Powered Trading Dashboard with Real-time Market Analysis",
+  "author": "Your Name",
+  "license": "MIT",
+  "homepage": "http://62.72.1.122:5173",
+  "dependencies": {
+    "@testing-library/jest-dom": "^5.17.0",
+    "@testing-library/react": "^13.4.0",
+    "@testing-library/user-event": "^14.5.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "recharts": "^2.8.0",
+    "web-vitals": "^2.1.4"
+  },
+  "scripts": {
+    "start": "REACT_APP_API_URL=http://62.72.1.122:8000 react-scripts start",
+    "start:local": "REACT_APP_API_URL=http://localhost:8000 react-scripts start",
+    "build": "REACT_APP_API_URL=http://62.72.1.122:8000 react-scripts build",
+    "build:local": "REACT_APP_API_URL=http://localhost:8000 react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint src --ext .js,.jsx,.ts,.tsx --fix",
+    "serve": "npx serve -s build -l 5173"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "devDependencies": {
+    "serve": "^14.2.1"
+  }
+}
