@@ -1,24 +1,72 @@
 {
   "name": "trading-dashboard-pro",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "private": true,
+  "description": "Dashboard avançado de trading com análise RSI/MACD e bot automatizado",
+  "homepage": ".",
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-scripts": "^5.0.1",
-    "recharts": "^2.12.0"
+    "recharts": "^2.12.0",
+    "lucide-react": "^0.263.1",
+    "mathjs": "^11.11.0"
   },
   "scripts": {
     "start": "GENERATE_SOURCEMAP=false react-scripts start",
     "build": "GENERATE_SOURCEMAP=false react-scripts build",
-    "serve": "npx serve -s build -l 5173 -H 0.0.0.0"
+    "test": "react-scripts test --watchAll=false",
+    "eject": "react-scripts eject",
+    "serve": "npx serve -s build -l 5173 -H 0.0.0.0",
+    "dev": "npm start",
+    "preview": "npm run build && npm run serve",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx",
+    "format": "prettier --write src/**/*.{js,jsx,ts,tsx,json,css,md}"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ],
+    "rules": {
+      "no-unused-vars": "warn",
+      "no-console": "off",
+      "react-hooks/exhaustive-deps": "warn"
+    }
   },
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   },
- "overrides": {
-  "ajv": "^8.12.0",
-  "ajv-keywords": "^5.1.0"
-  }
+  "devDependencies": {
+    "@types/mathjs": "^9.4.2",
+    "eslint": "^8.0.0",
+    "prettier": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0",
+    "npm": ">=8.0.0"
+  },
+  "proxy": "http://62.72.1.122:8000",
+  "keywords": [
+    "trading",
+    "dashboard",
+    "rsi",
+    "macd",
+    "technical-analysis",
+    "cryptocurrency",
+    "bot",
+    "react",
+    "websocket"
+  ],
+  "author": "Trading Dashboard Team",
+  "license": "MIT"
 }
