@@ -2804,6 +2804,63 @@ def get_patterns():
     except Exception as e:
         logger.error(f"❌ Error in pattern analysis: {e}")
         raise HTTPException(status_code=500, detail=f"Error in pattern analysis: {str(e)}")
+@app.get("/health")
+async def health_check():
+    """Endpoint de verificação de saúde"""
+    try:
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "websockets": {
+                "sentiment_connections": len(active_sentiment_websocket_connections),
+                "ohlcv_connections": len(active_ohlcv_websocket_connections),
+                "rsi_macd_connections": len(active_rsi_macd_websocket_connections)
+            },
+            "uptime": time.time() - start_time if 'start_time' in globals() else 0
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        raise HTTPException(status_code=500, detail="Service unhealthy")
+
+# Adicionar no início do arquivo
+start_time = time.time()
+
+# Melhorar o tratamento de desconexão nos WebSockets
+@app.websocket("/ws/sentiment")
+async def websocket_endpoint_sentiment(websocket: WebSocket):
+    """WebSocket para sentimento de mercado"""
+    await websocket.accept()
+    active_sentiment_websocket_connections.append(websocket)
+    logger.info(f"✅ Cliente WebSocket conectado (sentiment): {websocket.client}")
+    
+    try:
+        # Enviar dados iniciais
+        initial_data = await get_market_sentiment_websocket_data()
+        await websocket.send_json(initial_data)
+        
+        while True:
+            # Heartbeat para manter conexão viva
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                if message == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # Enviar ping se não receber mensagem em 30s
+                try:
+                    await websocket.send_text("ping")
+                except:
+                    break
+            except Exception as e:
+                logger.warning(f"Erro na comunicação WebSocket sentiment: {e}")
+                break
+                
+    except Exception as e:
+        logger.error(f"❌ Erro no WebSocket sentiment: {e}")
+    finally:
+        # Cleanup
+        if websocket in active_sentiment_websocket_connections:
+            active_sentiment_websocket_connections.remove(websocket)
+        logger.info(f"🔌 Cliente WebSocket desconectado (sentiment): {websocket.client}")
 
 @app.get("/api/calendar")
 def get_economic_calendar():
@@ -2822,7 +2879,7 @@ def get_economic_calendar():
             today = datetime.now().date()
             today_events = [
                 e for e in upcoming_events
-                if "date" in e and datetime.fromisoformat(e["date"]).date() == today
+                if "date" in e and datetime.fromisoformat(str(e["date"])).date() == today
             ]
 
             critical_events = sorted(
