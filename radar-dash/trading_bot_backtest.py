@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-🤖 BOT DE TRADING COM IA LEVE v2.1
+🤖 BOT DE TRADING COM IA LEVE v2.1 - VERSÃO CORRIGIDA
 Integração: Machine Learning + Análise de Sentimento + Padrões Históricos + Calendário FRED + CryptoPanic
 Estratégia: SuperTrend + VWAP + RSI + Volume + Multi-Timeframe + Filtros IA
 """
@@ -58,6 +58,12 @@ except ImportError:
 load_dotenv()
 
 # ============================================================================
+# 🔧 CONFIGURAÇÃO TEMPORÁRIA - YFINANCE COMO PRIMÁRIO
+# ============================================================================
+
+USE_YFINANCE_PRIMARY = True  # Mude para False quando Gate.io estiver estável
+
+# ============================================================================
 # 🔧 CONFIGURAÇÕES DA API GATE.IO, NEWSAPI, FRED E CRYPTOPANIC
 # ============================================================================
 
@@ -78,7 +84,6 @@ try:
 except ImportError:
     CRYPTOPANIC_API_KEY = "DUMMY_KEY_CRYPTOPANIC"
     logging.getLogger(__name__).warning("CRYPTOPANIC_API_KEY não encontrada em config.py. Funcionalidade da CryptoPanic será limitada/inativa.")
-
 
 def get_base_urls():
     """Retorna URLs baseado no ambiente"""
@@ -187,7 +192,116 @@ RISK_CONFIG = {
 }
 
 # ============================================================================
-# 🧠 CLASSES DE MACHINE LEARNING
+# 🔧 MÉTODOS AUXILIARES PARA DADOS (CORRIGIDOS) - Funções Globais
+# ============================================================================
+
+def get_yfinance_data_safe(symbol: str, interval: str, limit: int) -> pd.DataFrame:
+    """YFinance com tratamento de erro robusto"""
+    try:
+        symbol_map = {
+            'BTC_USDT': 'BTC-USD',
+            'ETH_USDT': 'ETH-USD',
+            'BNB_USDT': 'BNB-USD',
+            'ADA_USDT': 'ADA-USD'
+        }
+        
+        yf_symbol = symbol_map.get(symbol, symbol.replace('_USDT', '-USD'))
+        
+        interval_map = {
+            '1m': '1m', '5m': '5m', '15m': '15m', 
+            '30m': '30m', '1h': '1h', '4h': '4h', '1d': '1d'
+        }
+        yf_interval = interval_map.get(interval, '5m')
+        
+        # Períodos otimizados
+        if yf_interval in ['1m', '5m']:
+            period = '7d'
+        elif yf_interval in ['15m', '30m']:
+            period = '60d'
+        else:
+            period = '2y'
+        
+        if not YFINANCE_AVAILABLE:
+            logging.getLogger(__name__).warning("YFinance não disponível para get_yfinance_data_safe.")
+            return pd.DataFrame()
+            
+        ticker = yf.Ticker(yf_symbol)
+        df = ticker.history(period=period, interval=yf_interval, timeout=10, auto_adjust=True) # Adicionado auto_adjust=True
+        
+        if not df.empty:
+            # Padronizar colunas
+            df.columns = [col.title() for col in df.columns]
+            df.index.name = 'timestamp'
+            df = df.dropna().sort_index().tail(limit)
+            
+            return df
+        
+        return pd.DataFrame()
+        
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"YFinance erro para {symbol}: {e}")
+        return pd.DataFrame()
+
+def get_gateio_data_safe(symbol: str, interval: str, limit: int) -> pd.DataFrame:
+    """Gate.io com timeout rápido"""
+    try:
+        # Usar URLs corretas baseado no ambiente
+        if ENVIRONMENT == 'testnet':
+            base_url = 'https://api-testnet.gateapi.io'
+        else:
+            base_url = 'https://fx-api.gateio.ws'
+            
+        url = f"{base_url}/api/v4/futures/usdt/candlesticks" # Assumindo futuros para OHLCV
+        params = {
+            "contract": symbol,
+            "interval": interval,
+            "limit": min(limit, 1000)
+        }
+        
+        response = requests.get(url, params=params, timeout=5)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data:
+                df_data = []
+                for candle in data:
+                    try:
+                        df_data.append({
+                            'timestamp': pd.to_datetime(int(candle['t']), unit='s'),
+                            'Open': float(candle['o']),
+                            'High': float(candle['h']),
+                            'Low': float(candle['l']),
+                            'Close': float(candle['c']),
+                            'Volume': float(candle['v'])
+                        })
+                    except (KeyError, ValueError, TypeError) as e:
+                        logging.getLogger(__name__).warning(f"Erro ao processar candle Gate.io: {e} - {candle}")
+                        continue
+                
+                if df_data:
+                    df = pd.DataFrame(df_data)
+                    df.set_index('timestamp', inplace=True)
+                    return df.dropna().sort_index()
+        
+        logging.getLogger(__name__).warning(f"Gate.io API status {response.status_code} ou dados vazios para {symbol}. Response: {response.text[:200]}...")
+        return pd.DataFrame()
+        
+    except requests.exceptions.Timeout:
+        logging.getLogger(__name__).warning(f"Gate.io Timeout para {symbol} {interval}. URL: {url} Params: {params}")
+        return pd.DataFrame()
+    except requests.exceptions.RequestException as e:
+        logging.getLogger(__name__).warning(f"Gate.io Request Error para {symbol}: {e}")
+        return pd.DataFrame()
+    except json.JSONDecodeError:
+        logging.getLogger(__name__).warning(f"Gate.io JSON Decode Error para {symbol}. Response: {response.text[:200]}...")
+        return pd.DataFrame()
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Erro inesperado em get_gateio_data_safe para {symbol}: {e}")
+        return pd.DataFrame()
+
+
+# ============================================================================
+# 🧠 CLASSES DE MACHINE LEARNING (continuam iguais...)
 # ============================================================================
 
 @dataclass
@@ -251,8 +365,8 @@ class PatternMatcher:
         
         for i in range(len(recent)):
             candle = recent.iloc[i]
-            direction = 'up' if candle['close'] > candle['open'] else 'down'
-            vol_level = 'high' if candle['volume'] > recent['volume'].mean() else 'low'
+            direction = 'up' if candle['Close'] > candle['Open'] else 'down' # Use 'Close' and 'Open'
+            vol_level = 'high' if candle['Volume'] > recent['Volume'].mean() else 'low' # Use 'Volume'
             directions.append(direction)
             volumes.append(vol_level)
         
@@ -285,10 +399,11 @@ class SentimentAnalyzer:
     
     def __init__(self):
         self.sentiment_cache = {}
-        self.cache_expiry = timedelta(minutes=15) # Cache sentiment for 15 minutes to be more responsive
+        self.cache_expiry = timedelta(hours=6) # Ajustado para 6 horas para mitigar 429 Client Error
         self.last_update = {}
         self.logger = logging.getLogger('SentimentAnalyzer')
         self.cryptopanic_api_key = CRYPTOPANIC_API_KEY
+        self.news_api_key = NEWS_API_KEY # Adicionado para uso interno
         
     def get_crypto_news_sentiment(self, symbol: str) -> float:
         """
@@ -408,13 +523,13 @@ class SentimentAnalyzer:
         Função auxiliar para buscar notícias da NewsAPI com base em parâmetros.
         Retorna uma string concatenada de títulos e descrições.
         """
-        if not NEWS_API_KEY:
+        if not self.news_api_key: # Usar self.news_api_key
             self.logger.warning("NEWS_API_KEY não configurada. Não é possível buscar notícias reais.")
             return ""
         
         url = "https://newsapi.org/v2/everything" # Default to everything endpoint
         params = {
-            'apiKey': NEWS_API_KEY,
+            'apiKey': self.news_api_key, # Usar self.news_api_key
             'language': 'en',
             'sortBy': 'publishedAt', # Always get most recent
             'pageSize': 20 # Get a reasonable number of articles
@@ -516,52 +631,52 @@ class MLPredictor:
             current = df.iloc[-1]
             
             # Indicadores técnicos
-            rsi = ta.momentum.rsi(df['close'], window=14).iloc[-1]
+            rsi = ta.momentum.rsi(df['Close'], window=14).iloc[-1]
             supertrend_dir = self.calculate_supertrend_direction(df)
             
             # VWAP
             vwap = self.calculate_vwap(df).iloc[-1]
-            vwap_distance = ((current['close'] - vwap) / vwap) * 100 if vwap > 0 else 0.0
+            vwap_distance = ((current['Close'] - vwap) / vwap) * 100 if vwap > 0 else 0.0
             
             # Volume
-            volume_ma = df['volume'].rolling(20).mean().iloc[-1]
-            volume_ratio = current['volume'] / volume_ma if volume_ma > 0 else 1.0
+            volume_ma = df['Volume'].rolling(20).mean().iloc[-1]
+            volume_ratio = current['Volume'] / volume_ma if volume_ma > 0 else 1.0
             
             # ATR normalizado
-            atr = ta.volatility.average_true_range(df['high'], df['low'], df['close'], 14).iloc[-1]
-            atr_normalized = atr / current['close'] * 100 if current['close'] > 0 else 0.0
+            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], 14).iloc[-1]
+            atr_normalized = atr / current['Close'] * 100 if current['Close'] > 0 else 0.0
             
             # Bollinger Bands Position
             window = 20
             window_dev = 2
-            bb = ta.volatility.BollingerBands(df['close'], window=window, window_dev=window_dev)
+            bb = ta.volatility.BollingerBands(df['Close'], window=window, window_dev=window_dev)
             bb_upper = bb.bollinger_hband().iloc[-1]
             bb_lower = bb.bollinger_lband().iloc[-1]
             
             bollinger_position = 0.5 # Default to middle if bands are too narrow or invalid
             if not pd.isna(bb_upper) and not pd.isna(bb_lower) and (bb_upper - bb_lower) > 0:
-                bollinger_position = (current['close'] - bb_lower) / (bb_upper - bb_lower)
+                bollinger_position = (current['Close'] - bb_lower) / (bb_upper - bb_lower)
             
             # MACD Signal Difference
-            macd = ta.trend.macd(df['close']).iloc[-1]
-            macd_signal = ta.trend.macd_signal(df['close']).iloc[-1]
+            macd = ta.trend.macd(df['Close']).iloc[-1]
+            macd_signal = ta.trend.macd_signal(df['Close']).iloc[-1]
             macd_signal_diff = macd - macd_signal if not pd.isna(macd) and not pd.isna(macd_signal) else 0.0
             
             # Features de candle
-            candle_size = abs(current['close'] - current['open']) / current['open'] * 100 if current['open'] > 0 else 0.0
-            body_size = abs(current['close'] - current['open'])
-            upper_shadow = (current['high'] - max(current['open'], current['close'])) / body_size if body_size > 0 else 0
-            lower_shadow = (min(current['open'], current['close']) - current['low']) / body_size if body_size > 0 else 0
+            candle_size = abs(current['Close'] - current['Open']) / current['Open'] * 100 if current['Open'] > 0 else 0.0
+            body_size = abs(current['Close'] - current['Open'])
+            upper_shadow = (current['High'] - max(current['Open'], current['Close'])) / body_size if body_size > 0 else 0
+            lower_shadow = (min(current['Open'], current['Close']) - current['Low']) / body_size if body_size > 0 else 0
             
             # Trend strength
-            ma10 = df['close'].rolling(10).mean()
+            ma10 = df['Close'].rolling(10).mean()
             if len(ma10) >= 5 and ma10.iloc[-5] > 0:
                 trend_strength = (ma10.iloc[-1] - ma10.iloc[-5]) / ma10.iloc[-5] * 100
             else:
                 trend_strength = 0.0
             
             # Regime de volatilidade
-            volatility_pct = df['close'].pct_change().std() * 100 if len(df['close'].pct_change().dropna()) > 0 else 0.0
+            volatility_pct = df['Close'].pct_change().std() * 100 if len(df['Close'].pct_change().dropna()) > 0 else 0.0
             if volatility_pct < 1.0:
                 volatility_regime = 0  # Baixa
             elif volatility_pct > 3.0:
@@ -573,9 +688,9 @@ class MLPredictor:
             time_of_day = datetime.now().hour
             
             # Momentum
-            price_momentum_5 = ((current['close'] - df['close'].iloc[-6]) / df['close'].iloc[-6] * 100) if len(df) >= 6 and df['close'].iloc[-6] > 0 else 0
-            price_momentum_10 = ((current['close'] - df['close'].iloc[-11]) / df['close'].iloc[-11] * 100) if len(df) >= 11 and df['close'].iloc[-11] > 0 else 0
-            volume_momentum = ((current['volume'] - df['volume'].iloc[-6]) / df['volume'].iloc[-6] * 100) if len(df) >= 6 and df['volume'].iloc[-6] > 0 else 0
+            price_momentum_5 = ((current['Close'] - df['Close'].iloc[-6]) / df['Close'].iloc[-6] * 100) if len(df) >= 6 and df['Close'].iloc[-6] > 0 else 0
+            price_momentum_10 = ((current['Close'] - df['Close'].iloc[-11]) / df['Close'].iloc[-11] * 100) if len(df) >= 11 and df['Close'].iloc[-11] > 0 else 0
+            volume_momentum = ((current['Volume'] - df['Volume'].iloc[-6]) / df['Volume'].iloc[-6] * 100) if len(df) >= 6 and df['Volume'].iloc[-6] > 0 else 0
             
             return AIFeatures(
                 rsi=rsi if not pd.isna(rsi) else 50.0,
@@ -601,41 +716,106 @@ class MLPredictor:
             self.logger.error(f"Erro ao extrair features: {e}", exc_info=True)
             return None
     
-    def calculate_supertrend_direction(self, df: pd.DataFrame) -> int:
-        """Calcula direção do SuperTrend"""
+    def calculate_supertrend_direction(self, df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> int:
+        """
+        Calcula direção do SuperTrend - VERSÃO CORRIGIDA
+        
+        Returns:
+        1 for uptrend, -1 for downtrend, 0 for neutral/error
+        """
         try:
-            st_indicator = ta.trend.supertrend(
-                high=df['high'],
-                low=df['low'],
-                close=df['close'],
-                window=10,
-                multiplier=3
-            )
-            
-            direction_col = [col for col in st_indicator.columns if 'SUPERT_D' in col]
-            
-            if direction_col and not st_indicator[direction_col[0]].empty and not pd.isna(st_indicator[direction_col[0]].iloc[-1]):
-                return int(st_indicator[direction_col[0]].iloc[-1])
-            else:
-                # Fallback to MA-based trend if SuperTrend cannot be calculated or is neutral
+            if len(df) < period + 1:
+                # Not enough data, fallback to simple MA trend
                 if len(df) >= 20:
-                    ma20 = df['close'].rolling(20).mean().iloc[-1]
-                    if not pd.isna(ma20) and df['close'].iloc[-1] > ma20:
+                    ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                    if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
                         return 1
-                    elif not pd.isna(ma20) and df['close'].iloc[-1] < ma20:
+                    elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
                         return -1
                 return 0
+            
+            # Calculate ATR
+            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=period)
+            
+            # Calculate HL2 (median price)
+            hl2 = (df['High'] + df['Low']) / 2
+            
+            # Calculate basic upper and lower bands
+            upper_band = hl2 + (multiplier * atr)
+            lower_band = hl2 - (multiplier * atr)
+            
+            # Initialize arrays
+            final_upper_band = np.zeros(len(df))
+            final_lower_band = np.zeros(len(df))
+            supertrend = np.zeros(len(df))
+            direction = np.zeros(len(df))
+            
+            for i in range(len(df)):
+                if i == 0:
+                    final_upper_band[i] = upper_band.iloc[i]
+                    final_lower_band[i] = lower_band.iloc[i]
+                else:
+                    # Final Upper Band
+                    if upper_band.iloc[i] < final_upper_band[i-1] or df['Close'].iloc[i-1] > final_upper_band[i-1]:
+                        final_upper_band[i] = upper_band.iloc[i]
+                    else:
+                        final_upper_band[i] = final_upper_band[i-1]
+                    
+                    # Final Lower Band
+                    if lower_band.iloc[i] > final_lower_band[i-1] or df['Close'].iloc[i-1] < final_lower_band[i-1]:
+                        final_lower_band[i] = lower_band.iloc[i]
+                    else:
+                        final_lower_band[i] = final_lower_band[i-1]
+            
+            # Calculate SuperTrend and Direction
+            for i in range(len(df)):
+                if i == 0:
+                    # Initialize first value
+                    if df['Close'].iloc[i] <= final_lower_band[i]:
+                        supertrend[i] = final_upper_band[i]
+                        direction[i] = -1
+                    else:
+                        supertrend[i] = final_lower_band[i] 
+                        direction[i] = 1
+                else:
+                    # Determine trend direction
+                    if supertrend[i-1] == final_upper_band[i-1] and df['Close'].iloc[i] < final_upper_band[i]:
+                        supertrend[i] = final_upper_band[i]
+                        direction[i] = -1
+                    elif supertrend[i-1] == final_upper_band[i-1] and df['Close'].iloc[i] >= final_upper_band[i]:
+                        supertrend[i] = final_lower_band[i]
+                        direction[i] = 1
+                    elif supertrend[i-1] == final_lower_band[i-1] and df['Close'].iloc[i] > final_lower_band[i]:
+                        supertrend[i] = final_lower_band[i]
+                        direction[i] = 1
+                    elif supertrend[i-1] == final_lower_band[i-1] and df['Close'].iloc[i] <= final_lower_band[i]:
+                        supertrend[i] = final_upper_band[i]
+                        direction[i] = -1
+                    else:
+                        supertrend[i] = supertrend[i-1]
+                        direction[i] = direction[i-1]
+            
+            # Return the latest direction
+            return int(direction[-1])
+            
         except Exception as e:
             self.logger.error(f"Erro ao calcular SuperTrend direction: {e}")
+            # Fallback to MA-based trend if SuperTrend calculation fails
+            if len(df) >= 20:
+                ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
+                    return 1
+                elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
+                    return -1
             return 0
     
     def calculate_vwap(self, df: pd.DataFrame) -> pd.Series:
         """Calcula VWAP"""
-        typical_price = (df['high'] + df['low'] + df['close']) / 3
+        typical_price = (df['High'] + df['Low'] + df['Close']) / 3 # Use maiúsculas
         # Ensure volume is not zero to prevent division by zero
-        if df['volume'].sum() == 0:
+        if df['Volume'].sum() == 0: # Use maiúscula
             return pd.Series([0.0] * len(df), index=df.index)
-        return (typical_price * df['volume']).cumsum() / df['volume'].cumsum()
+        return (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum() # Use maiúscula
     
     def add_training_sample(self, features: AIFeatures, outcome: bool):
         """Adiciona amostra de treinamento"""
@@ -888,6 +1068,24 @@ class EconomicEvent:
     category: str = "GENERAL"
     metadata: Dict[str, Any] = field(default_factory=dict) # Usa default_factory para mutáveis
 
+    def to_dict(self): # Adicione este método
+        return {
+            'release_id': self.release_id,
+            'name': self.name,
+            'date': self.date.isoformat(), # Converte datetime para string ISO
+            'time': self.time,
+            'importance': self.importance,
+            'frequency': self.frequency,
+            'series_id': self.series_id,
+            'previous_value': self.previous_value,
+            'forecast': self.forecast,
+            'actual': self.actual,
+            'impact_score': self.impact_score,
+            'currency': self.currency,
+            'category': self.category,
+            'metadata': self.metadata
+        }
+
 class FREDEconomicCalendar:
     """
     Integração profissional com a API do FRED para calendário econômico.
@@ -1037,7 +1235,7 @@ class FREDEconomicCalendar:
 
         if not self.api_key:
             self.logger.warning("FRED API Key não configurada. Não é possível obter releases.")
-            self.cache["upcoming_events"] = []
+            self.cache["upcoming_events"] = [] 
             self.cache["last_full_update"] = current_dt
             return []
 
@@ -1325,7 +1523,7 @@ class FREDEconomicCalendar:
                                    angular_cache: Dict) -> Dict:
         """
         Correlaciona eventos econômicos com movimentos angulares históricos.
-        Ainda em desenvolvimento, para um radar profissional real, esta lógica seria mais complexa.
+        Ainda em desenvolvimento, para um radar profissional profissional real, esta lógica seria mais complexa.
         """
         correlations = {
             "event_impact_analysis": [],
@@ -1595,17 +1793,17 @@ class AIEnhancedAnalyzer:
             
             # VWAP
             vwap = self.ml_predictor.calculate_vwap(df).iloc[-1]
-            current_price = df['close'].iloc[-1]
+            current_price = df['Close'].iloc[-1] # Use maiúscula
             
             # RSI
-            rsi = ta.momentum.rsi(df['close'], window=14).iloc[-1]
+            rsi = ta.momentum.rsi(df['Close'], window=14).iloc[-1] # Use maiúscula
             
             # Volume
-            volume_ma = df['volume'].rolling(20).mean().iloc[-1]
-            volume_ratio = df['volume'].iloc[-1] / volume_ma if volume_ma > 0 else 1.0
+            volume_ma = df['Volume'].rolling(20).mean().iloc[-1] # Use maiúscula
+            volume_ratio = df['Volume'].iloc[-1] / volume_ma if volume_ma > 0 else 1.0 # Use maiúscula
             
             # ATR
-            atr = ta.volatility.average_true_range(df['high'], df['low'], df['close'], 14).iloc[-1]
+            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], 14).iloc[-1] # Use maiúsculas
             
             # Lógica de sinal simplificada
             action = None
@@ -1720,8 +1918,8 @@ class AIEnhancedAnalyzer:
                     self.logger.warning("Sinal sem features para treinamento de ML. Pulando.")
             
             # Adicionar resultado para pattern matching
-            if signal.symbol in self.data_cache and '5m' in self.data_cache[signal.symbol]:
-                df = self.data_cache[signal.symbol]['5m']
+            if signal.symbol in self.analyzer.data_cache and '5m' in self.analyzer.data_cache[signal.symbol]:
+                df = self.analyzer.data_cache[signal.symbol]['5m']
                 pattern = self.pattern_matcher.extract_pattern(df)
                 self.pattern_matcher.add_outcome(pattern, outcome)
             
@@ -1788,15 +1986,18 @@ class AIEnhancedTradingBot:
         
         # Configurar logging
         log_level = logging.DEBUG if self.environment == 'testnet' else logging.INFO
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(f'ai_bot_{self.environment}.log'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger('AIBot')
+        # Remova ou comente a linha abaixo se você estiver usando uvicorn --log-level debug
+        # logging.basicConfig(
+        #     level=log_level,
+        #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        #     handlers=[
+        #         logging.FileHandler(f'ai_bot_{self.environment}.log'),
+        #         logging.StreamHandler()
+        #     ]
+        # )
+        self.logger = logging.getLogger('AIBot') # Obtenha o logger, ele será configurado pelo root logger do FastAPI/Uvicorn
+        self.logger.setLevel(log_level) # Defina o nível específico para AIBot
+
         
         self.logger.info(f"🤖 AIEnhancedTradingBot inicializado - {environment.upper()}")
         if ML_AVAILABLE:
@@ -1812,9 +2013,9 @@ class AIEnhancedTradingBot:
         else:
             self.logger.warning("⚠️ FRED API Key não configurada/inválida. Calendário econômico inativo.")
         if CRYPTOPANIC_API_KEY and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC":
-            self.logger.info("✅ CryptoPanic API configurada. Análise de sentimento de cripto ativa.")
+            self.logger.info("📰 CryptoPanic: ATIVO (Sentimento de Cripto)")
         else:
-            self.logger.warning("⚠️ CryptoPanic API Key não configurada/inválida. Análise de sentimento de cripto limitada.")
+            self.logger.warning("⚠️ CryptoPanic: INATIVO (chave API ausente/inválida)")
 
             
     def get_account_balance(self) -> float:
@@ -1860,77 +2061,55 @@ class AIEnhancedTradingBot:
     
     def get_ohlcv_data(self, symbol: str, interval: str = '5m', limit: int = 200) -> pd.DataFrame:
         """
-        Busca dados OHLCV.
-        Para live/testnet, usa a API da Gate.io.
-        Para backtesting (simulação), pode usar yfinance ou dados locais.
+        Busca dados OHLCV com fallback robusto.
+        Para live/testnet, tenta Gate.io primeiro, depois YFinance como fallback.
+        Para backtesting (simulação), usa yfinance.
         """
+        global USE_YFINANCE_PRIMARY # Acessa a flag global
+
         if self.environment == 'simulate_backtest' and YFINANCE_AVAILABLE:
-            try:
-                yf_symbol = _convert_gateio_symbol_to_yfinance(symbol)
-                # yfinance 'interval' maps: '5m' -> '5m', '15m' -> '15m', '1h' -> '60m'
-                yf_interval = {'5m': '5m', '15m': '15m', '1h': '60m'}.get(interval, '5m')
-                
-                # yfinance 'period' argument for historical depth.
-                if yf_interval == '5m':
-                    # For 5m, yfinance typically has max 7 days historical data
-                    period = "7d"
-                elif yf_interval == '15m':
-                    # For 15m, yfinance typically has max 60 days historical data
-                    period = "60d"
-                elif yf_interval == '60m':
-                    # For 60m, yfinance typically has max 730 days historical data (2 years)
-                    period = "2y"
-                else:
-                    period = "1mo" # Default for other intervals
-
-                ticker = yf.Ticker(yf_symbol)
-                df = ticker.history(period=period, interval=yf_interval)
-                
-                if df.empty:
-                    self.logger.warning(f"YFinance returned empty data for {yf_symbol} with interval {yf_interval} and period {period}")
-                    return pd.DataFrame()
-
-                # Rename columns to match Gate.io/common format
-                df.columns = [col.lower() for col in df.columns]
-                df.rename(columns={'close': 'close', 'open': 'open', 'high': 'high', 'low': 'low', 'volume': 'volume'}, inplace=True)
-                df.index.name = 'timestamp'
-                df = df[['open', 'high', 'low', 'close', 'volume']] # Reorder columns
-                df = df.dropna().sort_index()
-                return df.tail(limit) # Ensure we return max 'limit' candles
-
-            except Exception as e:
-                self.logger.error(f"Erro ao buscar OHLCV com YFinance para {symbol} {interval}: {e}", exc_info=True)
-                return pd.DataFrame()
-        else: # Use Gate.io API for live and testnet environments
-            try:
-                endpoint = f"/futures/usdt/candlesticks"
-                query_string = f"contract={symbol}&interval={interval}&limit={limit}"
-                full_url = f"{self.urls['rest']}/api/v4{endpoint}?{query_string}"
-                
-                response = requests.get(full_url, timeout=15)
-                if response.status_code == 200:
-                    data = response.json()
-                    
-                    if not data:
-                        return pd.DataFrame()
-                    
-                    df = pd.DataFrame(data, columns=['timestamp', 'volume', 'close', 'high', 'low', 'open'])
-                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
-                    
-                    for col in ['open', 'high', 'low', 'close', 'volume']:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
-                    
-                    df.set_index('timestamp', inplace=True)
-                    return df.dropna().sort_index()
-                
-                self.logger.error(f"Falha ao buscar OHLCV {symbol} {interval}: {response.status_code}, {response.text}")
-                return pd.DataFrame()
-            except Exception as e:
-                self.logger.error(f"Erro ao buscar OHLCV {symbol} {interval}: {e}", exc_info=True)
-                return pd.DataFrame()
+            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
+            if not df.empty:
+                self.logger.debug(f"✅ YFinance primário (simulação): {symbol} - {len(df)} candles")
+                return df
+            else:
+                self.logger.warning(f"⚠️ YFinance primário (simulação) retornou dados vazios para {symbol}")
+        
+        if USE_YFINANCE_PRIMARY and YFINANCE_AVAILABLE:
+            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
+            if not df.empty:
+                self.logger.debug(f"✅ YFinance primário: {symbol} - {len(df)} candles")
+                return df
+            else:
+                self.logger.warning(f"⚠️ YFinance primário retornou dados vazios para {symbol}")
+        
+        # Tentar Gate.io se YFinance falhar ou não for primário
+        try:
+            df = get_gateio_data_safe(symbol, interval, limit) # Chama a função global
+            if not df.empty:
+                self.logger.debug(f"✅ Gate.io: {symbol} - {len(df)} candles")
+                return df
+            else:
+                self.logger.warning(f"⚠️ Gate.io retornou dados vazios para {symbol}")
+        except Exception as gate_error:
+            self.logger.warning(f"Gate.io falhou para {symbol}: {gate_error}")
+        
+        # Fallback final para YFinance se não for primário e ainda não usado
+        if not USE_YFINANCE_PRIMARY and YFINANCE_AVAILABLE:
+            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
+            if not df.empty:
+                self.logger.info(f"✅ YFinance fallback: {symbol} - {len(df)} candles")
+                return df
+            else:
+                self.logger.warning(f"⚠️ YFinance fallback retornou dados vazios para {symbol}")
+        
+        self.logger.error(f"❌ Todas as fontes de dados falharam para {symbol}")
+        return pd.DataFrame()
+        
+    # Removidos os métodos _get_yfinance_data e _get_gateio_data, pois as funções globais são chamadas diretamente
     
     def update_data_cache(self):
-        """Atualiza cache de dados"""
+        """Atualiza cache de dados com tratamento melhorado de erros"""
         try:
             for symbol in TRADING_SYMBOLS:
                 if symbol not in self.analyzer.data_cache:
@@ -1940,26 +2119,50 @@ class AIEnhancedTradingBot:
                     cache_key = f"{symbol}_{timeframe}"
                     now = datetime.now()
                     
-                    # Update cache every 2 minutes for 5m, 5 minutes for 15m, 15 minutes for 1h
-                    update_interval = timedelta(minutes=2) if timeframe == '5m' else \
-                                      timedelta(minutes=5) if timeframe == '15m' else \
-                                      timedelta(minutes=15)
-                                      
+                    # Intervalos de atualização mais conservadores
+                    update_intervals = {
+                        '5m': timedelta(minutes=3),   # A cada 3 min para 5m
+                        '15m': timedelta(minutes=8),  # A cada 8 min para 15m
+                        '1h': timedelta(minutes=20)   # A cada 20 min para 1h
+                    }
+                    
+                    update_interval = update_intervals.get(timeframe, timedelta(minutes=5))
+                                    
                     if (cache_key not in self.analyzer.last_cache_update or 
                         now - self.analyzer.last_cache_update[cache_key] > update_interval):
                         
-                        # Use the environment-aware get_ohlcv_data
-                        df = self.get_ohlcv_data(symbol, timeframe, 200)
-                        
-                        if not df.empty:
-                            self.analyzer.data_cache[symbol][timeframe] = df
-                            self.analyzer.last_cache_update[cache_key] = now
-                            self.logger.debug(f"Cache atualizado: {symbol} {timeframe} ({len(df)} candles)")
-                        else:
-                            self.logger.warning(f"Falha ao atualizar cache: {symbol} {timeframe}")
+                        try:
+                            # Usar o método corrigido com fallback
+                            df = self.get_ohlcv_data(symbol, timeframe, 200)
                             
+                            if not df.empty:
+                                # Calcular indicadores básicos se houver dados suficientes
+                                if len(df) >= 20:
+                                    try:
+                                        df['rsi'] = ta.momentum.rsi(df['Close'], window=14) # Use 'Close'
+                                    except Exception as e:
+                                        self.logger.warning(f"Erro ao calcular RSI para {symbol} {timeframe}: {e}")
+                                
+                                if len(df) >= 50:
+                                    try:
+                                        df['sma_20'] = df['Close'].rolling(20).mean() # Use 'Close'
+                                        df['sma_50'] = df['Close'].rolling(50).mean() # Use 'Close'
+                                    except Exception as e:
+                                        self.logger.warning(f"Erro ao calcular SMAs para {symbol} {timeframe}: {e}")
+                                
+                                self.analyzer.data_cache[symbol][timeframe] = df
+                                self.analyzer.last_cache_update[cache_key] = now
+                                self.logger.debug(f"✅ Cache atualizado: {symbol} {timeframe} - {len(df)} candles")
+                            else:
+                                self.logger.warning(f"⚠️ Dados vazios para {symbol} {timeframe}")
+                                
+                        except Exception as symbol_error:
+                            self.logger.warning(f"⚠️ Falha ao atualizar cache: {symbol} {timeframe} - {symbol_error}")
+                            # Não é um erro crítico, apenas um aviso, então continuamos com o próximo timeframe/símbolo.
+                            continue
+                    
         except Exception as e:
-            self.logger.error(f"Erro ao atualizar cache de dados: {e}", exc_info=True)
+            self.logger.error(f"❌ Erro crítico no update_data_cache: {e}", exc_info=True)
     
     def calculate_optimal_position_size(self, current_price: float, risk_factor: float = 0.25) -> float:
         """
@@ -2133,7 +2336,8 @@ class AIEnhancedTradingBot:
             self.logger.warning(f"Não foi possível determinar um tamanho de posição válido para {signal.symbol}. Cancelando trade.")
             return False
 
-        order = self.place_market_order(signal.symbol, side, contracts=contracts_to_trade)
+        # CORREÇÃO: Remova a duplicação de 'contracts='
+        order = self.place_market_order(signal.symbol, side, contracts_to_trade)
         
         if order:
             time.sleep(2) # Give some time for order to execute and price to update
@@ -2433,7 +2637,9 @@ class AIEnhancedTradingBot:
                 if fred_high_impact_today:
                     self.logger.info(f"📅 Eventos FRED HOJE (Alto Impacto):")
                     for event in fred_high_impact_today:
-                        hours_until_release = (event.date.replace(hour=int(event.time.split(':')[0]), minute=int(event.time.split(':')[1].split(' ')[0])) - datetime.now()).total_seconds() / 3600
+                        # Certifique-se de que event.time não é None antes de tentar dividir
+                        event_time_str = event.time.split(' ')[0] if event.time else "00:00"
+                        hours_until_release = (event.date.replace(hour=int(event_time_str.split(':')[0]), minute=int(event_time_str.split(':')[1])) - datetime.now()).total_seconds() / 3600
                         self.logger.info(f"    - {event.name} ({event.time}): {event.actual} (Prev: {event.previous_value}) - Em {hours_until_release:.1f}h")
                 else:
                     self.logger.info("📅 Nenhum evento FRED de Alto Impacto hoje.")
@@ -2468,7 +2674,7 @@ class AIEnhancedTradingBot:
             self.logger.info(f"   • Predições: {self.performance['ai_predictions']}")
             if ML_AVAILABLE:
                 self.logger.info(f"   • Modelo Accuracy: {self.analyzer.ml_predictor.model_accuracy:.3f}")
-                self.logger.info(f"   • Samples de Treino: {len(self.analyzer.ml_predictor.training_data)}")
+                self.logger.info(f"   • Amostras de Treino: {len(self.analyzer.ml_predictor.training_data)}")
             self.logger.info(f"   • Padrões Aprendidos: {len(self.analyzer.pattern_matcher.patterns)}")
             
             # Salvar modelo final
@@ -2543,7 +2749,7 @@ class Backtester:
 
             try:
                 ticker = yf.Ticker(yf_symbol)
-                df = ticker.history(start=start_date - timedelta(days=30), end=end_date + timedelta(days=1), interval=yf_interval) 
+                df = ticker.history(start=start_date - timedelta(days=30), end=end_date + timedelta(days=1), interval=yf_interval, auto_adjust=True) # auto_adjust=True
                 
                 if df.empty:
                     self.logger.warning(f"Não foi possível carregar dados para {yf_symbol} de {start_date} a {end_date}. Pulando.")

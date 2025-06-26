@@ -25,9 +25,9 @@ from concurrent.futures import ThreadPoolExecutor
 import sys
 
 # Importar o bot de trading real
-# A classe do bot foi renomeada para CombinedAITradingBot
+# A classe do bot foi renomeada para CombinedAITradingBot e importamos RISK_CONFIG
 try:
-    from trading_bot_backtest import CombinedAITradingBot, API_KEY, SECRET, ENVIRONMENT, FRED_API_KEY as TRADING_BOT_FRED_API_KEY, NEWS_API_KEY as TRADING_BOT_NEWS_API_KEY, CRYPTOPANIC_API_KEY as TRADING_BOT_CRYPTOPANIC_API_KEY, TRADING_SYMBOLS
+    from trading_bot_backtest import CombinedAITradingBot, API_KEY, SECRET, ENVIRONMENT, FRED_API_KEY as TRADING_BOT_FRED_API_KEY, NEWS_API_KEY as TRADING_BOT_NEWS_API_KEY, CRYPTOPANIC_API_KEY as TRADING_BOT_CRYPTOPANIC_API_KEY, TRADING_SYMBOLS, RISK_CONFIG
 except ImportError as e:
     logging.error(f"Failed to import trading_bot_backtest: {e}")
     logging.error("Please ensure trading_bot_backtest.py is in the same directory or accessible via PYTHONPATH.")
@@ -43,12 +43,29 @@ except ImportError as e:
                 "daily_trades": 0, "last_update": datetime.now().isoformat(),
                 "ai_accuracy": 0.0, "ai_predictions": 0, "ai_correct_predictions": 0,
                 "pattern_accuracy": 0.0, "sentiment_impact": 0.0,
-                "session_start_time": datetime.now().isoformat() # Adicionado para evitar KeyError
+                "session_start_time": datetime.now().isoformat()
             }
             self.active_positions = []
             self.signals_history = []
-            self.risk_config = {'max_open_positions': 2, 'stop_loss_atr_multiplier': 1.5}
-            self.urls = {"testnet": "https://api.gateio.ws/api/v4"}
+            # Define risk_config para o mock bot
+            self.risk_config = {
+                'max_open_positions': 2,
+                'stop_loss_atr_multiplier': 1.5,
+                'position_size_usdt': 15,
+                'max_daily_trades': 10,
+                'cooldown_minutes': 10,
+                'trailing_stop_percent': 1.2,
+                'reversal_fall_pct': 1.0,
+                'reversal_rise_pct': 1.0,
+                'reversal_volume_multiplier': 2.5,
+                'reversal_cooldown_minutes': 45,
+                'max_correlation': 0.8,
+                'min_volume_ratio': 1.5,
+                'rsi_oversold': 25,
+                'rsi_overbought': 75,
+                'ai_confidence_boost': 0.20
+            }
+            self.urls = {"rest": "https://api-testnet.gateapi.io", "ws": "wss://ws-testnet.gate.io/v4/ws/futures/usdt"}
             class MockAnalyzer:
                 def __init__(self):
                     self.fred_events_cache = []
@@ -75,7 +92,7 @@ except ImportError as e:
                         self.cryptopanic_api_key = "MOCK_KEY"
                         self.news_api_key = "MOCK_KEY"
                     def get_crypto_news_sentiment(self, symbol):
-                        return random.uniform(0.3, 0.7) # Simulated sentiment
+                        return random.uniform(0.3, 0.7)
                 class MockMLPredictor:
                     def __init__(self):
                         self.model_accuracy = 0.0
@@ -137,7 +154,7 @@ except ImportError as e:
                 "recent_signals": [],
                 "trade_history_count": 0,
                 "trade_history": [],
-                "config": {},
+                "config": {}, # Mock config, adjust if needed
                 "ai_system_status": {
                     "ml_available": True, "xgb_available": True, "sentiment_available": True,
                     "model_trained": True, "last_retrain": None, "pattern_database_size": 0,
@@ -148,6 +165,8 @@ except ImportError as e:
             }
 
 # Assign default values if not imported
+# Estes são usados pelo radar-dash.py diretamente, fora da instância do bot.
+# Eles devem ser carregados do .env.
 API_KEY = os.getenv('GATE_TESTNET_API_KEY') or os.getenv('GATE_API_KEY') or "YOUR_SIMULATED_API_KEY"
 SECRET = os.getenv('GATE_TESTNET_API_SECRET') or os.getenv('GATE_API_SECRET') or "YOUR_SIMULATED_SECRET"
 ENVIRONMENT = os.getenv('GATE_ENVIRONMENT', 'testnet')
@@ -155,6 +174,28 @@ TRADING_BOT_FRED_API_KEY = os.getenv('FRED_API_KEY') or "DUMMY_KEY_FRED"
 TRADING_BOT_NEWS_API_KEY = os.getenv('NEWS_API_KEY') or "DUMMY_KEY_NEWSAPI"
 TRADING_BOT_CRYPTOPANIC_API_KEY = os.getenv('CRYPTOPANIC_API_KEY') or "DUMMY_KEY_CRYPTOPANIC"
 TRADING_SYMBOLS = ['BTC_USDT', 'ETH_USDT']
+
+# Definindo RISK_CONFIG de fallback no radar-dash.py caso a importação do bot falhe
+# Isso garante que o dashboard tenha acesso a essas configurações mesmo com o mock bot.
+if 'RISK_CONFIG' not in locals(): # Verifica se RISK_CONFIG já foi importado do bot real
+    RISK_CONFIG = {
+        'testnet': {
+            'position_size_usdt': 15, 'max_open_positions': 2, 'stop_loss_atr_multiplier': 2.0,
+            'take_profit_atr_multiplier': 4.0, 'max_daily_trades': 10, 'cooldown_minutes': 10,
+            'trailing_stop_percent': 1.2, 'reversal_fall_pct': 1.0, 'reversal_rise_pct': 1.0,
+            'reversal_volume_multiplier': 2.5, 'reversal_cooldown_minutes': 45,
+            'max_correlation': 0.8, 'min_volume_ratio': 1.5, 'rsi_oversold': 25,
+            'rsi_overbought': 75, 'ai_confidence_boost': 0.20
+        },
+        'live': {
+            'position_size_usdt': 30, 'max_open_positions': 1, 'stop_loss_atr_multiplier': 1.5,
+            'take_profit_atr_multiplier': 3.0, 'max_daily_trades': 6, 'cooldown_minutes': 20,
+            'trailing_stop_percent': 0.8, 'reversal_fall_pct': 1.5, 'reversal_rise_pct': 1.5,
+            'reversal_volume_multiplier': 3.0, 'reversal_cooldown_minutes': 90,
+            'max_correlation': 0.6, 'min_volume_ratio': 2.0, 'rsi_oversold': 20,
+            'rsi_overbought': 80, 'ai_confidence_boost': 0.15
+        }
+    }
 
 
 # ===============================================================================
@@ -655,7 +696,7 @@ def get_current_market_data() -> Dict:
             # Strategy 2: yfinance ticker.history (fallback)
             if current_price == 0.0 or current_volume == 0:
                 try:
-                    hist_data = yf.download(symbol, period="1d", interval="1m", progress=False, threads=False)
+                    hist_data = yf.download(symbol, period="1d", interval="1m", progress=False, threads=False, auto_adjust=True) # auto_adjust=True
                     if not hist_data.empty:
                         if current_price == 0.0 and 'Close' in hist_data.columns:
                             current_price = float(hist_data['Close'].iloc[-1])
@@ -738,7 +779,14 @@ def update_price_history(current_data: Dict):
 
         if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
             bot_fred_data = real_trading_bot.analyzer.fred_calendar.cache
+            if real_trading_bot.environment == 'simulate_backtest' and hasattr(real_trading_bot.analyzer.fred_calendar, 'datetime_now_override'):
+                real_trading_bot.analyzer.fred_calendar.datetime_now_override = datetime.now()
+            
+            # Garante que o cache FRED do bot esteja atualizado antes de tentar usar
+            real_trading_bot.analyzer._update_fred_events_cache() 
+
             if bot_fred_data["last_full_update"]:
+                 # Certifique-se que o e.to_dict() existe na classe EconomicEvent em trading_bot_backtest.py
                  cache["fred_data"]["upcoming_events"] = [e.to_dict() for e in bot_fred_data["upcoming_events"]]
                  cache["fred_data"]["last_fred_update"] = bot_fred_data["last_full_update"].isoformat()
                  cache["fred_data"]["pre_event_alerts"] = real_trading_bot.analyzer.fred_calendar.generate_pre_event_alerts(hours_before=48)
@@ -1123,16 +1171,32 @@ async def simulate_and_send_sentiment_data():
             real_data_successfully_fetched = await fetch_gateio_real_sentiment()
             current_time = datetime.now()
 
-            if real_trading_bot:
+            # Tenta sincronizar sentimento de notícias do bot real (que usa NewsAPI/CryptoPanic)
+            if real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer:
                 try:
-                    bot_sentiment_score = real_trading_bot.analyzer.sentiment_analyzer.get_crypto_news_sentiment("BTC_USDT")
-                    sentiment_cache["btc_sentiment"]["buyers"] = bot_sentiment_score * 100
-                    sentiment_cache["btc_sentiment"]["sellers"] = (1 - bot_sentiment_score) * 100
-                    sentiment_cache["btc_sentiment"]["trend"] = "BULLISH" if bot_sentiment_score > 0.6 else "BEARISH" if bot_sentiment_score < 0.4 else "NEUTRAL"
+                    # O símbolo deve ser uma string como "BTC_USDT"
+                    bot_news_sentiment_score = real_trading_bot.analyzer.sentiment_analyzer.get_crypto_news_sentiment("BTC_USDT")
+                    
+                    # Usa o sentimento do bot para BTC
+                    sentiment_cache["btc_sentiment"]["buyers"] = bot_news_sentiment_score * 100
+                    sentiment_cache["btc_sentiment"]["sellers"] = (1 - bot_news_sentiment_score) * 100
+                    sentiment_cache["btc_sentiment"]["trend"] = "BULLISH" if bot_news_sentiment_score > 0.6 else "BEARISH" if bot_news_sentiment_score < 0.4 else "NEUTRAL"
                     sentiment_cache["btc_sentiment"]["last_update"] = current_time.isoformat()
-                    logger.debug(f"Synced BTC sentiment from bot: {bot_sentiment_score:.3f}")
+                    logger.debug(f"Synced BTC news sentiment from bot: {bot_news_sentiment_score:.3f}")
+
+                    # Ajusta FGI baseado no sentimento de notícias do bot, dando mais peso ao FGI da Gate.io se houver
+                    if real_data_successfully_fetched:
+                        # Se já pegou dados da Gate.io (Orderbook, Ticker), combina com o sentimento de notícias
+                        combined_fgi_influence = (sentiment_cache["fear_greed_index"] + (bot_news_sentiment_score - 0.5) * 40) / 2
+                        sentiment_cache["fear_greed_index"] = max(0, min(100, int(combined_fgi_influence)))
+                    else: # Se não pegou dados da Gate.io, FGI é apenas do sentimento de notícias
+                        sentiment_cache["fear_greed_index"] = max(0, min(100, int(bot_news_sentiment_score * 100)))
+
                 except Exception as e:
-                    logger.warning(f"Failed to sync BTC sentiment from bot: {e}. Using dashboard's own calculation.")
+                    logger.warning(f"Failed to sync BTC news sentiment from bot: {e}. Using dashboard's own sentiment calculation for overall mood.")
+            else:
+                 logger.warning("Trading bot sentiment analyzer is not available. Using dashboard's own sentiment calculation for overall mood.")
+
 
             btc_buyers_current = sentiment_cache["btc_sentiment"]["buyers"]
             paxg_buyers_current = sentiment_cache["paxg_sentiment"]["buyers"]
@@ -1170,7 +1234,7 @@ async def simulate_and_send_sentiment_data():
             else:
                 sentiment_cache["market_mood"] = "NEUTRAL"
 
-            if real_data_successfully_fetched:
+            if real_data_successfully_fetched or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer): # Se qualquer fonte de dados real funcionou
                 history_point = {
                     "timestamp": current_time.isoformat(),
                     "btc_buyers": round(sentiment_cache["btc_sentiment"]["buyers"], 2),
@@ -1180,14 +1244,14 @@ async def simulate_and_send_sentiment_data():
                     "fear_greed": sentiment_cache["fear_greed_index"],
                     "volume_estimate": sentiment_cache["btc_sentiment"]["volume_24h"],
                     "market_mood": sentiment_cache["market_mood"],
-                    "data_source": "REAL_GATEIO"
+                    "data_source": "REAL_GATEIO" if real_data_successfully_fetched else "REAL_NEWS_BOT"
                 }
                 sentiment_cache["sentiment_history"].append(history_point)
                 
                 if len(sentiment_cache["sentiment_history"]) > 144:
                     sentiment_cache["sentiment_history"] = sentiment_cache["sentiment_history"][-144:]
 
-            sentiment_cache["websocket_connected"] = real_data_successfully_fetched
+            sentiment_cache["websocket_connected"] = real_data_successfully_fetched # Ou adicione lógica para incluir o sentimento do bot aqui
 
             sentiment_data_for_ws = {
                 "timestamp": current_time.isoformat(),
@@ -1521,7 +1585,7 @@ async def fetch_realtime_ohlcv_gateio():
                         result = data.get("result", {})
                         
                         # CORREÇÃO: Usar 'n' em vez de 'name' (formato atual da API)
-                        currency_pair_full_str = result.get("n")  # Alterado para 'n'
+                        currency_pair_full_str = result.get("n")
                         
                         # Verificar se temos uma string válida para o par de moedas
                         if not currency_pair_full_str or not isinstance(currency_pair_full_str, str):
@@ -1562,9 +1626,9 @@ async def fetch_realtime_ohlcv_gateio():
                         
                         # Determinar se o formato é "intervalo_BASE_QUOTE" ou "BASE_QUOTE"
                         if parts[0].endswith('m') or parts[0].endswith('h') or parts[0].endswith('d'):
-                            asset_key = parts[1].lower()  # Formato com intervalo: "1m_BTC_USDT"
+                            asset_key = parts[1].lower()
                         else:
-                            asset_key = parts[0].lower()  # Formato simples: "BTC_USDT"
+                            asset_key = parts[0].lower()
 
                         # Verificar se o asset_key é um dos que estamos monitorando
                         valid_assets = [s.split('_')[0].lower() for s in TRADING_SYMBOLS]
@@ -1648,10 +1712,13 @@ async def websocket_endpoint_ohlcv(websocket: WebSocket):
 
     try:
         initial_data_payload = {}
-        for asset_key, asset_cache in realtime_ohlcv_cache.items():
-            if asset_cache["candles"]:
-                initial_data_payload[f"{asset_key}_macd"] = asset_cache["macd_data"]
-                initial_data_payload[f"{asset_key}_current_candle"] = asset_cache["current_candle"]
+        # CORREÇÃO: Iterar apenas sobre os ativos que possuem 'candles' no cache.
+        for asset_key in ['btc', 'eth']:
+            if asset_key in realtime_ohlcv_cache:
+                asset_cache = realtime_ohlcv_cache[asset_key]
+                if isinstance(asset_cache, dict) and "candles" in asset_cache and asset_cache["candles"]:
+                    initial_data_payload[f"{asset_key}_macd"] = asset_cache.get("macd_data", {})
+                    initial_data_payload[f"{asset_key}_current_candle"] = asset_cache.get("current_candle", None)
         
         initial_data_payload["websocket_status"] = "connected"
         initial_data_payload["message"] = "OHLCV real-time data stream active"
@@ -1660,6 +1727,7 @@ async def websocket_endpoint_ohlcv(websocket: WebSocket):
         logger.debug(f"Sent initial data to OHLCV WebSocket client {websocket.client}")
         
         while True:
+            # Keep-alive heartbeat
             try:
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
                 logger.debug(f"Received message from OHLCV WebSocket client {websocket.client}: {message[:50]}...")
@@ -1828,6 +1896,7 @@ def get_current_data():
             if real_trading_bot.environment == 'simulate_backtest' and hasattr(bot_fred_calendar_instance, 'datetime_now_override'):
                 bot_fred_calendar_instance.datetime_now_override = datetime.now()
             
+            # Chama para garantir que o cache seja atualizado (get_upcoming_releases já atualiza internamente)
             bot_fred_calendar_instance.get_upcoming_releases(days_ahead=14)
 
             upcoming_events_from_bot = bot_fred_calendar_instance.cache["upcoming_events"]
@@ -2075,11 +2144,11 @@ def get_debug_system_status():
             issues.append("Gate.io sentiment API disconnected (Dashboard's direct fetch)")
         if not realtime_ohlcv_cache["btc"]["websocket_connected"]:
             issues.append("Gate.io OHLCV WebSocket disconnected")
-        if TRADING_BOT_FRED_API_KEY == "DUMMY_KEY_FRED" or (real_trading_bot and not real_trading_bot.analyzer.fred_calendar.api_key):
+        if TRADING_BOT_FRED_API_KEY == "DUMMY_KEY_FRED" or (real_trading_bot and real_trading_bot.analyzer.fred_calendar.api_key == "DUMMY_KEY_FRED"):
             issues.append("FRED API Key is missing or invalid for the Trading Bot")
-        if TRADING_BOT_NEWS_API_KEY == "DUMMY_KEY_NEWSAPI":
+        if TRADING_BOT_NEWS_API_KEY == "DUMMY_KEY_NEWSAPI" or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer.news_api_key == "DUMMY_KEY_NEWSAPI"):
             issues.append("NEWS_API_KEY is missing for the Trading Bot's sentiment analysis")
-        if TRADING_BOT_CRYPTOPANIC_API_KEY == "DUMMY_KEY_CRYPTOPANIC":
+        if TRADING_BOT_CRYPTOPANIC_API_KEY == "DUMMY_KEY_CRYPTOPANIC" or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key == "DUMMY_KEY_CRYPTOPANIC"):
             issues.append("CRYPTOPANIC_API_KEY is missing for the Trading Bot's sentiment analysis")
 
         debug_info["overall_status"] = {
@@ -2119,7 +2188,7 @@ def test_data_fetch():
     }
     
     try:
-        gold_data = yf.download('GC=F', period='5d', interval='1d', progress=False)
+        gold_data = yf.download('GC=F', period='5d', interval='1d', progress=False, auto_adjust=True)
         test_results["tests"]["yfinance_gold"] = {
             "status": "success" if not gold_data.empty else "empty_data",
             "data_points": len(gold_data) if not gold_data.empty else 0,
@@ -2132,7 +2201,7 @@ def test_data_fetch():
         }
     
     try:
-        btc_data = yf.download('BTC-USD', period='5d', interval='1d', progress=False)
+        btc_data = yf.download('BTC-USD', period='5d', interval='1d', progress=False, auto_adjust=True)
         test_results["tests"]["yfinance_btc"] = {
             "status": "success" if not btc_data.empty else "empty_data",
             "data_points": len(btc_data) if not btc_data.empty else 0,
@@ -2145,7 +2214,7 @@ def test_data_fetch():
         }
     
     try:
-        dxy_data = yf.download('DX-Y.NYB', period='5d', interval='1d', progress=False)
+        dxy_data = yf.download('DX-Y.NYB', period='5d', interval='1d', progress=False, auto_adjust=True)
         test_results["tests"]["yfinance_dxy"] = {
             "status": "success" if not dxy_data.empty else "empty_data",
             "data_points": len(dxy_data) if not dxy_data.empty else 0,
@@ -2334,7 +2403,7 @@ async def get_financial_data_by_period(period: str):
                                 yf_period = yfinance_period_map.get(period, '1d')
                                 yf_interval = yfinance_interval_map.get(period, '1d')
                                 logger.info(f"DEBUG: Fallback {asset_name.upper()} from yfinance (Symbol: {symbol_yf}, Period: {yf_period}, Interval: {yf_interval})")
-                                hist = yf.download(symbol_yf, period=yf_period, interval=yf_interval, progress=False, threads=False)
+                                hist = yf.download(symbol_yf, period=yf_period, interval=yf_interval, progress=False, threads=False, auto_adjust=True) # auto_adjust=True
                             except Exception as fallback_error:
                                 logger.error(f"❌ Fallback yfinance also failed for {asset_name.upper()}: {fallback_error}")
                 elif symbol_yf:
@@ -2356,7 +2425,7 @@ async def get_financial_data_by_period(period: str):
                         logger.error(f"❌ yfinance error for {symbol_yf}: {yf_error}")
                         try:
                             logger.info(f"DEBUG: Retry {asset_name} with conservative parameters")
-                            hist = yf.download(symbol_yf, period='1mo', interval='1d', progress=False, threads=False)
+                            hist = yf.download(symbol_yf, period='1mo', interval='1d', progress=False, threads=False, auto_adjust=True) # auto_adjust=True
                         except Exception as retry_error:
                             logger.error(f"❌ Conservative retry also failed for {symbol_yf}: {retry_error}")
                     
@@ -2613,6 +2682,10 @@ async def websocket_endpoint_sentiment(websocket: WebSocket):
     logger.debug(f"Current active sentiment WebSocket connections: {len(active_sentiment_websocket_connections)}")
 
     try:
+        # Enviar dados iniciais
+        initial_data = await get_market_sentiment_websocket_data()
+        await websocket.send_json(initial_data)
+        
         while True:
             message = await asyncio.wait_for(websocket.receive_text(), timeout=300.0)
             logger.debug(f"Received message from sentiment WebSocket client {websocket.client}: {message[:50]}...")
@@ -3547,13 +3620,18 @@ def start_trading_bot():
         
         logger.info("🚀 Trading bot started successfully")
         
+        # Acessar as configurações de risco diretamente do dicionário global RISK_CONFIG
+        # ou da instância do bot, se estiver garantido que ela tem o atributo.
+        # A importação do RISK_CONFIG global é a maneira mais segura aqui.
+        current_risk_config = RISK_CONFIG.get(real_trading_bot.environment, {}) 
+        
         return {
             "status": "started",
             "message": "Trading bot started successfully",
             "timestamp": datetime.now().isoformat(),
             "bot_config": {
-                "max_positions": real_trading_bot.risk_config['max_open_positions'],
-                "risk_per_trade": real_trading_bot.risk_config['stop_loss_atr_multiplier'],
+                "max_positions": current_risk_config.get('max_open_positions', 'N/A'),
+                "risk_per_trade": current_risk_config.get('stop_loss_atr_multiplier', 'N/A'),
                 "strategies_active": "AI_Enhanced",
                 "auto_trading": True
             }
@@ -3635,7 +3713,7 @@ def get_system_status():
         uptime_minutes_system = int((uptime_seconds_system % 3600) // 60)
         
         return {
-            "timestamp": current_time.isoformat(),
+            "timestamp": datetime.now().isoformat(),
             "status": "healthy",
             "version": SYSTEM_INFO['version'],
             "uptime": f"{uptime_hours_system}h {uptime_minutes_system}m",
@@ -3648,7 +3726,7 @@ def get_system_status():
                     "ohlcv": "active" if realtime_ohlcv_cache["btc"]["websocket_connected"] or ('eth' in realtime_ohlcv_cache and realtime_ohlcv_cache["eth"]["websocket_connected"]) else "disconnected",
                     "rsi_macd": "active" if active_rsi_macd_websocket_connections else "disconnected"
                 },
-                "fred_api_status": "active" if (real_trading_bot and real_trading_bot.analyzer.fred_calendar.api_key) else "inactive",
+                "fred_api_status": "active" if (real_trading_bot and real_trading_bot.analyzer.fred_calendar.api_key and real_trading_bot.analyzer.fred_calendar.api_key != "DUMMY_KEY_FRED") else "inactive",
                 "gate_io_api_status": "connected" if (sentiment_cache["websocket_connected"] or realtime_ohlcv_cache["btc"]["websocket_connected"]) else "failed",
                 "trading_bot_status": bot_running_status,
                 "trading_bot_uptime": f"{bot_uptime_hours}h {bot_uptime_minutes}m"
@@ -3724,14 +3802,36 @@ def debug_gateio_connection():
         
         connection_test["overall_direct_api_status"] = "healthy" if successful_direct_fetches == total_direct_fetches else "degraded" if successful_direct_fetches > 0 else "failed"
         connection_test["direct_api_success_rate"] = round((successful_direct_fetches / total_direct_fetches) * 100, 1) if total_direct_fetches > 0 else 0.0
-
+        
+        # Testes específicos da API do Bot (saldo, preço)
         if real_trading_bot:
-            balance_test = real_trading_bot.get_account_balance()
-            connection_test["bot_account_balance_test"] = {
-                "environment": real_trading_bot.environment.upper(),
-                "balance": balance_test,
-                "status": "success" if balance_test > 0 else "failed_or_zero_balance"
-            }
+            try:
+                balance_test = real_trading_bot.get_account_balance()
+                connection_test["bot_account_balance_test"] = {
+                    "environment": real_trading_bot.environment.upper(),
+                    "balance": balance_test,
+                    "status": "success" if balance_test > 0 else "failed_or_zero_balance"
+                }
+            except Exception as e:
+                connection_test["bot_account_balance_test"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+            
+            try:
+                price_test_from_bot = real_trading_bot.get_current_price("BTC_USDT")
+                connection_test["bot_price_fetch_test"] = {
+                    "status": "success" if price_test_from_bot > 0 else "failed_or_zero_price",
+                    "price": price_test_from_bot
+                }
+            except Exception as e:
+                connection_test["bot_price_fetch_test"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        else:
+            connection_test["bot_account_balance_test"] = {"status": "not_initialized", "message": "Bot instance is None."}
+            connection_test["bot_price_fetch_test"] = {"status": "not_initialized", "message": "Bot instance is None."}
         
         return connection_test
 
@@ -3802,7 +3902,7 @@ async def startup_event():
     bot_status = "✅ ACTIVE" if real_trading_bot else "❌ DISABLED"
     logger.info(f"🎯 All systems initialized!")
     logger.info(f"🤖 Trading Bot: {bot_status}")
-    logger.info(f"📊 Real-time MACD crossover detection: {'✅ ACTIVE' if realtime_ohlcv_cache['btc']['websocket_connected'] else '⚠️ PENDING'}")
+    logger.info(f"📊 Real-time MACD crossover detection: {'✅ ACTIVE' if (realtime_ohlcv_cache['btc']['websocket_connected'] or ('eth' in realtime_ohlcv_cache and realtime_ohlcv_cache['eth']['websocket_connected'])) else '⚠️ PENDING'}")
     logger.info(f"🌐 API Server: ✅ READY at http://{SERVER_CONFIG['host']}:{SERVER_CONFIG['port']}")
     
     if not real_trading_bot:
@@ -3876,7 +3976,7 @@ def get_bot_diagnostics():
         else:
             diagnostics["connectivity_tests"]["fred_api_bot"] = {"status": "skipped", "message": "FRED_API_KEY not configured for bot."}
 
-        if real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key or real_trading_bot.analyzer.sentiment_analyzer.news_api_key:
+        if (real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key and real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key != "DUMMY_KEY_CRYPTOPANIC") or (real_trading_bot.analyzer.sentiment_analyzer.news_api_key and real_trading_bot.analyzer.sentiment_analyzer.news_api_key != "DUMMY_KEY_NEWSAPI"):
             try:
                 btc_sentiment = real_trading_bot.analyzer.sentiment_analyzer.get_crypto_news_sentiment("BTC_USDT")
                 diagnostics["connectivity_tests"]["sentiment_apis_bot"] = {
@@ -3915,15 +4015,22 @@ async def websocket_rsi_macd_endpoint(websocket: WebSocket):
         
         while True:
             try:
+                # Heartbeat para manter conexão viva
                 message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                logger.debug(f"Received RSI+MACD WebSocket message: {message[:50]}...")
-                
+                if message == "ping":
+                    await websocket.send_text("pong")
+                # Enviar dados atualizados periodicamente, ou se a mensagem não for 'ping'
                 updated_data = await get_rsi_macd_websocket_data()
                 await websocket.send_json(updated_data)
                 
             except asyncio.TimeoutError:
+                # Se não receber mensagem em 30s, tenta enviar dados atualizados
                 updated_data = await get_rsi_macd_websocket_data()
                 await websocket.send_json(updated_data)
+                
+            except Exception as e:
+                logger.warning(f"Erro na comunicação WebSocket RSI+MACD: {e}")
+                break # Sai do loop se houver erro de comunicação
                 
     except WebSocketDisconnect as e:
         if websocket in active_rsi_macd_websocket_connections:
@@ -3932,7 +4039,7 @@ async def websocket_rsi_macd_endpoint(websocket: WebSocket):
     except Exception as e:
         if websocket in active_rsi_macd_websocket_connections:
             active_rsi_macd_websocket_connections.remove(websocket)
-        logger.error(f"RSI+MACD WebSocket error: {e}")
+        logger.error(f"RSI+MACD WebSocket error: {e}", exc_info=True)
 
 
 async def get_rsi_macd_websocket_data():
@@ -3942,55 +4049,59 @@ async def get_rsi_macd_websocket_data():
     try:
         current_time = datetime.now()
         
+        # Tenta obter dados reais do bot
         if real_trading_bot and hasattr(real_trading_bot, 'signals_history') and real_trading_bot.signals_history:
             try:
-                latest_signal = real_trading_bot.signals_history[-1]
-                signal_dict = latest_signal.to_dict()
-                
-                rsi_data_from_bot = signal_dict.get("features", {}).get("rsi")
-                
-                rsi_value = rsi_data_from_bot if rsi_data_from_bot is not None else round(random.uniform(30, 70), 1)
-                rsi_zone = "oversold" if rsi_value < 30 else ("overbought" if rsi_value > 70 else "neutral")
-                rsi_trend = "rising" if signal_dict.get("features", {}).get("trend_strength", 0) > 0 else ("falling" if signal_dict.get("features", {}).get("trend_strength", 0) < 0 else "flat")
+                # O ideal seria pegar os últimos valores RSI/MACD calculados pelo bot no ciclo mais recente
+                # Como 'features' não está diretamente no signal, ou é uma cópia, precisamos reavaliar
+                # uma forma de obter os dados mais recentes do RSI/MACD do cache do bot.
+                # Por simplicidade, vou pegar os do cache de OHLCV em tempo real do dashboard.
 
-                macd_value = round(random.uniform(-50, 50), 4)
-                signal_value = round(random.uniform(-50, 50), 4)
-                histogram = round(macd_value - signal_value, 4)
-                
-                if latest_signal.get("action") == "BUY" and latest_signal.get("ai_probability") > 0.6:
-                    histogram = abs(histogram) if histogram < 0 else histogram
-                    macd_value = abs(macd_value) if macd_value < 0 else macd_value
-                    signal_value = macd_value * 0.9
-                elif latest_signal.get("action") == "SELL" and latest_signal.get("ai_probability") < 0.4:
-                    histogram = -abs(histogram) if histogram > 0 else histogram
-                    macd_value = -abs(macd_value) if macd_value > 0 else macd_value
-                    signal_value = macd_value * 1.1
+                btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
+                if btc_ohlcv_cache and btc_ohlcv_cache.get("macd_data", {}).get("macd"):
+                    macd_data = btc_ohlcv_cache["macd_data"]
+                    # Usar os valores reais do MACD calculados
+                    macd_value = macd_data["macd"][-1] if macd_data["macd"] else 0
+                    signal_value = macd_data["signal"][-1] if macd_data["signal"] else 0
+                    histogram = macd_data["histogram"][-1] if macd_data["histogram"] else 0
 
-                
-                data_source = "real_bot"
-                
+                    # Tentar calcular RSI do último candle real
+                    candles_list = list(btc_ohlcv_cache["candles"])
+                    if len(candles_list) >= 14:
+                        df_candles = pd.DataFrame(candles_list)
+                        df_candles['close'] = df_candles['close'].astype(float)
+                        rsi_series = talib.RSI(df_candles['close'].values, timeperiod=14)
+                        rsi_value = rsi_series[-1] if not pd.isna(rsi_series[-1]) else 50.0
+                    else:
+                        rsi_value = round(random.uniform(25, 75), 1) # Fallback se não houver candles suficientes
+                    
+                    data_source = "real_ohlcv_macd"
+
+                else: # Fallback se não houver dados reais de OHLCV do WebSocket
+                    logger.warning("No real OHLCV/MACD data from WebSocket for RSI+MACD display. Using simulated data.")
+                    rsi_value = round(random.uniform(25, 75), 1)
+                    macd_value = round(random.uniform(-80, 80), 4)
+                    signal_value = round(random.uniform(-80, 80), 4)
+                    histogram = round(macd_value - signal_value, 4)
+                    data_source = "simulated_fallback"
+
             except Exception as ex:
-                logger.warning(f"Failed to extract real RSI/MACD data from bot signal: {ex}. Using simulated data for WebSocket.")
+                logger.warning(f"Failed to extract real RSI/MACD data for WebSocket: {ex}. Using simulated data.")
                 rsi_value = round(random.uniform(25, 75), 1)
-                rsi_zone = "oversold" if rsi_value < 30 else "overbought" if rsi_value > 70 else "neutral"
-                rsi_trend = random.choice(["rising", "falling", "flat"])
-                
                 macd_value = round(random.uniform(-80, 80), 4)
                 signal_value = round(random.uniform(-80, 80), 4)
                 histogram = round(macd_value - signal_value, 4)
-                
                 data_source = "simulated_fallback"
-        else:
+
+        else: # Se o bot não estiver inicializado
             rsi_value = round(random.uniform(25, 75), 1)
-            rsi_zone = "oversold" if rsi_value < 30 else "overbought" if rsi_value > 70 else "neutral"
-            rsi_trend = random.choice(["rising", "falling", "flat"])
-            
             macd_value = round(random.uniform(-80, 80), 4)
             signal_value = round(random.uniform(-80, 80), 4)
             histogram = round(macd_value - signal_value, 4)
-            
             data_source = "simulated"
         
+        rsi_zone = "oversold" if rsi_value < 30 else ("overbought" if rsi_value > 70 else "neutral")
+        rsi_trend = "rising" if rsi_value > 50 else ("falling" if rsi_value < 50 else "flat") # Simplificado para demo
         rsi_confidence = 85 if rsi_zone in ["oversold", "overbought"] else 45
         macd_strength = min(abs(histogram) * 15, 90)
         combined_confidence = round((rsi_confidence + macd_strength) / 2, 0)
@@ -3998,15 +4109,15 @@ async def get_rsi_macd_websocket_data():
         signal_type = "HOLD"
         signal_color = "#FFD700"
         
-        if histogram > 0 and rsi_value < 50:
+        # Lógica de sinal para exibição
+        if histogram > 0 and rsi_value < 70: # MACD bullish cross and not overbought RSI
             signal_type = "BUY"
             signal_color = "#00ff00"
             if rsi_zone == "oversold" and histogram > 5: signal_type = "STRONG_BUY"
-        elif histogram < 0 and rsi_value > 50:
+        elif histogram < 0 and rsi_value > 30: # MACD bearish cross and not oversold RSI
             signal_type = "SELL"
             signal_color = "#ff0000"
             if rsi_zone == "overbought" and histogram < -5: signal_type = "STRONG_SELL"
-
 
         return {
             "type": "rsi_macd_update",

@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+yfinance
+pandas
+numpy
+scikit-learn
+joblib
+textblob
+xgboost
+requests
+aiohttp
+websockets
+ta
+talib
+pytz
+scipy
