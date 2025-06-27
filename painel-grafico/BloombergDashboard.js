@@ -1,12 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, ComposedChart, Area
-} from 'recharts';
-import {
-  TrendingUp, TrendingDown, Activity, DollarSign, BarChart3, Zap, Globe, Clock,
-  AlertTriangle, Play, Pause, Settings, Wifi, WifiOff, Database, Brain, Calendar, Bell, Info
-} from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, ComposedChart } from 'recharts'; // Removido Area, AreaChart se não estiver usando
+import { TrendingUp, TrendingDown, Activity, DollarSign, BarChart3, Zap, Globe, Clock, AlertTriangle, Play, Pause, Settings, Wifi, WifiOff, Database, Brain, Calendar, Bell, Info, Compass } from 'lucide-react'; // Adicionado Compass para inclinação
 
 const BloombergDashboard = () => {
   // Estado para armazenar os dados das APIs
@@ -46,6 +40,12 @@ const BloombergDashboard = () => {
     recentTrades: [] // Posições ativas e sinais recentes
   });
 
+  // NOVO ESTADO: Para indicadores em tempo real (RSI e Ângulos MACD)
+  const [realtimeIndicators, setRealtimeIndicators] = useState({
+    btc: { rsi: null, macd: null, macdAngle: null },
+    eth: { rsi: null, macd: null, macdAngle: null }
+  });
+
   // Estados da UI/UX
   const [isLoading, setIsLoading] = useState(true); // Indica se a carga inicial está em andamento
   const [connectionStatus, setConnectionStatus] = useState('connecting'); // Status geral da conexão com o backend
@@ -58,7 +58,7 @@ const BloombergDashboard = () => {
     rsiMacd: false
   });
 
-  // Backend API Base URL - ATENÇÃO: Ajuste este IP/PORTA conforme o seu servidor FastAPI
+  // Backend API Base URL - ajuste conforme necessário
   const API_BASE = 'http://62.72.1.122:8000'; // Exemplo: 'http://localhost:8000' ou 'http://seu_ip_publico:8000'
 
   // --- Funções de Formatação ---
@@ -100,16 +100,16 @@ const BloombergDashboard = () => {
       if (!response.ok) throw new Error(`Failed to fetch market data: ${response.statusText}`);
       const data = await response.json();
       setMarketData(data);
-      setConnectionStatus('connected'); // Se ao menos esta API responde, consideramos conectado
+      setConnectionStatus('connected');
     } catch (error) {
       console.error('Error fetching market data:', error);
-      setConnectionStatus('error'); // Se falhar, marca como erro
+      setConnectionStatus('error');
     }
   }, []);
 
-  // Busca dados históricos de gráficos de /api/precos/{period}
+  // Fetch historical chart data from /api/precos/{period}
   const fetchChartData = useCallback(async (period) => {
-    setIsLoading(true); // Ativa loading para o gráfico
+    setIsLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/precos/${period}`);
       if (!response.ok) throw new Error(`Failed to fetch chart data for ${period}: ${response.statusText}`);
@@ -119,19 +119,20 @@ const BloombergDashboard = () => {
       if (data.dates && data.assets) {
         data.dates.forEach((date, index) => {
           const point = {
-            time: new Date(date).getTime(), // Para o eixo X de tempo
-            date: new Date(date).toLocaleDateString(), // Para exibir no tooltip
-            timestamp: date // O timestamp original da API
+            time: new Date(date).getTime(),
+            date: new Date(date).toLocaleDateString(),
+            timestamp: date
           };
 
           Object.keys(data.assets).forEach(asset => {
             const assetData = data.assets[asset];
-            // Garante que os valores são numéricos ou 0/null para evitar NaN/erros de gráfico
+            // Garante que os valores são numéricos ou null
             point[`${asset}_price`] = Number(assetData?.price_data?.[index]) || null;
             point[`${asset}_volume`] = Number(assetData?.volume_data?.[index]) || null;
             point[`${asset}_macd`] = Number(assetData?.macd_data?.[index]) || null;
             point[`${asset}_macd_signal`] = Number(assetData?.macd_signal_data?.[index]) || null;
             point[`${asset}_macd_hist`] = Number(assetData?.macd_hist_data?.[index]) || null;
+            point[`${asset}_rsi`] = Number(assetData?.rsi_data?.[index]) || null; // NOVO: RSI histórico
           });
           chartPoints.push(point);
         });
@@ -159,7 +160,7 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca status do bot de trading de /api/trading-bot/status
+  // Fetch trading bot status from /api/trading-bot/status
   const fetchBotStatus = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/trading-bot/status`);
@@ -177,7 +178,7 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca sentimento de mercado de /api/sentiment (REST fallback para WS)
+  // Fetch market sentiment from /api/sentiment (REST fallback para WS)
   const fetchSentiment = useCallback(async () => {
     // Esta função será usada como fallback se o WebSocket de sentimento não conectar
     try {
@@ -190,7 +191,7 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca alertas de /api/alerts
+  // Fetch alerts from /api/alerts
   const fetchAlerts = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/alerts`);
@@ -202,7 +203,7 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca calendário econômico de /api/calendar
+  // Fetch economic calendar from /api/calendar
   const fetchEconomicCalendar = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/calendar`);
@@ -217,7 +218,61 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca recomendações de backtest de /api/backtest-recommendations
+  // Fetch trading performance data for both environments
+  const fetchFinancialData = useCallback(async () => {
+    try {
+      // Get bot performance data
+      const performanceResponse = await fetch(`${API_BASE}/api/trading-bot/performance`);
+      if (performanceResponse.ok) {
+        const performanceData = await performanceResponse.json();
+
+        // Get recent trades/positions
+        const positionsResponse = await fetch(`${API_BASE}/api/trading-bot/positions`);
+        const signalsResponse = await fetch(`${API_BASE}/api/trading-bot/signals`);
+
+        let positions = [];
+        let signals = [];
+
+        if (positionsResponse.ok) {
+          const posData = await positionsResponse.json();
+          positions = posData.positions || [];
+        }
+
+        if (signalsResponse.ok) {
+          const sigData = await signalsResponse.json();
+          signals = sigData.signals || [];
+        }
+
+        // Combina posições ativas e sinais recentes para 'recentTrades'
+        const combinedRecentTrades = [...positions, ...signals]
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) // Ordena por data mais recente
+          .slice(0, 10); // Pega os 10 mais recentes
+
+        const currentEnv = botStatus?.environment?.toLowerCase() || environment; // Usa o ambiente do bot se disponível
+
+        setFinancialData(prev => ({
+          ...prev,
+          [currentEnv]: { // Atualiza apenas o ambiente correto
+            balance: performanceData.current_balance || 0,
+            startBalance: performanceData.start_balance || (currentEnv === 'testnet' ? 10000 : 0),
+            totalPnL: performanceData.total_pnl || 0,
+            dailyPnL: performanceData.daily_pnl || 0,
+            totalTrades: performanceData.total_trades || 0,
+            winningTrades: performanceData.winning_trades || 0,
+            winRate: performanceData.win_rate || 0,
+            maxDrawdown: performanceData.max_drawdown || 0,
+            roiPercent: performanceData.roi_percentage || 0,
+            lastUpdate: performanceData.last_update || new Date().toISOString()
+          },
+          recentTrades: combinedRecentTrades
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching financial data:', error);
+    }
+  }, [botStatus, environment]);
+
+  // Fetch backtest recommendations from /api/backtest-recommendations
   const fetchBacktestRecommendations = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE}/api/backtest-recommendations`);
@@ -229,65 +284,136 @@ const BloombergDashboard = () => {
     }
   }, []);
 
-  // Busca dados de performance e posições financeiras
-  const fetchFinancialData = useCallback(async () => {
+
+  // Setup WebSocket connections
+  const setupWebSockets = useCallback(() => {
+    // Sentiment WebSocket
     try {
-      const performanceResponse = await fetch(`${API_BASE}/api/trading-bot/performance`);
-      const positionsResponse = await fetch(`${API_BASE}/api/trading-bot/positions`);
-      const signalsResponse = await fetch(`${API_BASE}/api/trading-bot/signals`);
-
-      let performanceData = {};
-      if (performanceResponse.ok) {
-        performanceData = await performanceResponse.json();
-      } else {
-        console.error('Failed to fetch bot performance:', performanceResponse.statusText);
-      }
-
-      let positions = [];
-      if (positionsResponse.ok) {
-        const posData = await positionsResponse.json();
-        positions = posData.positions || [];
-      } else {
-        console.error('Failed to fetch active positions:', positionsResponse.statusText);
-      }
-
-      let signals = [];
-      if (signalsResponse.ok) {
-        const sigData = await signalsResponse.json();
-        signals = sigData.signals || [];
-      } else {
-        console.error('Failed to fetch recent signals:', signalsResponse.statusText);
-      }
-
-      // Combina posições ativas e sinais recentes para 'recentTrades'
-      const combinedRecentTrades = [...positions, ...signals]
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) // Ordena por data mais recente
-        .slice(0, 10); // Pega os 10 mais recentes
-
-      const currentEnv = botStatus?.environment?.toLowerCase() || environment; // Usa o ambiente do bot se disponível
-
-      setFinancialData(prev => ({
-        ...prev,
-        [currentEnv]: { // Atualiza apenas o ambiente correto
-          balance: performanceData.current_balance || 0,
-          startBalance: performanceData.start_balance || (currentEnv === 'testnet' ? 10000 : 0),
-          totalPnL: performanceData.total_pnl || 0,
-          dailyPnL: performanceData.daily_pnl || 0,
-          totalTrades: performanceData.total_trades || 0,
-          winningTrades: performanceData.winning_trades || 0,
-          winRate: performanceData.win_rate || 0,
-          maxDrawdown: performanceData.max_drawdown || 0,
-          roiPercent: performanceData.roi_percentage || 0,
-          lastUpdate: performanceData.last_update || new Date().toISOString()
-        },
-        recentTrades: combinedRecentTrades
-      }));
+      const sentimentWs = new WebSocket(`ws://${API_BASE.split('//')[1]}/ws/sentiment`);
+      sentimentWs.onopen = () => {
+        setWsConnections(prev => ({ ...prev, sentiment: true }));
+        console.log('Sentiment WebSocket connected.');
+      };
+      sentimentWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        setSentimentData(data);
+      };
+      sentimentWs.onclose = (e) => {
+        setWsConnections(prev => ({ ...prev, sentiment: false }));
+        console.warn('Sentiment WebSocket disconnected:', e.code, e.reason);
+        setTimeout(() => setupWebSockets(), 5000); // Tenta reconectar
+      };
+      sentimentWs.onerror = (err) => {
+        console.error('Sentiment WebSocket error:', err);
+        sentimentWs.close();
+      };
     } catch (error) {
-      console.error('Error fetching financial data:', error);
+      console.error('Sentiment WebSocket setup error:', error);
     }
-  }, [botStatus, environment]); // Depende de botStatus para pegar o ambiente atual do bot
 
-  // --- Funções de Controle do Bot ---
+    // OHLCV WebSocket
+    try {
+      const ohlcvWs = new WebSocket(`ws://${API_BASE.split('//')[1]}/ws/ohlcv`);
+      ohlcvWs.onopen = () => {
+        setWsConnections(prev => ({ ...prev, ohlcv: true }));
+        console.log('OHLCV WebSocket connected.');
+      };
+      ohlcvWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'ohlcv_update') {
+          const assetKey = data.asset.toLowerCase();
+          setChartData(prev => {
+            const newCombined = [...prev.combined];
+            const newCandle = data.candle;
+
+            // Encontre ou adicione o ponto de dados
+            let existingPointIndex = newCombined.findIndex(p => p.time === newCandle.timestamp * 1000);
+            if (existingPointIndex === -1) {
+              // Adiciona um novo ponto se não for uma atualização da vela atual
+              existingPointIndex = newCombined.length;
+              newCombined.push({
+                time: newCandle.timestamp * 1000,
+                date: new Date(newCandle.timestamp * 1000).toLocaleDateString(),
+                timestamp: newCandle.datetime,
+              });
+            }
+            const currentPoint = newCombined[existingPointIndex];
+
+            // Atualiza dados de preço e volume
+            currentPoint[`${assetKey}_price`] = newCandle.close;
+            currentPoint[`${assetKey}_volume`] = newCandle.volume;
+
+            // Atualiza dados MACD se presentes
+            if (data.macd_data) {
+              currentPoint[`${assetKey}_macd`] = data.macd_data.macd?.[data.macd_data.macd.length - 1] || null;
+              currentPoint[`${assetKey}_macd_signal`] = data.macd_data.signal?.[data.macd_data.signal.length - 1] || null;
+              currentPoint[`${assetKey}_macd_hist`] = data.macd_data.histogram?.[data.macd_data.histogram.length - 1] || null;
+            }
+
+            // NOVO: Atualiza dados RSI se presentes
+            if (data.rsi_data) {
+              currentPoint[`${assetKey}_rsi`] = data.rsi_data.last_value || null;
+            }
+
+            // Mantenha apenas os últimos N pontos para evitar que o gráfico cresça indefinidamente
+            return { ...prev, combined: newCombined.slice(-200) }; // Ex: Mantenha os últimos 200 pontos
+          });
+
+          // NOVO: Atualiza o estado de indicadores em tempo real para o card
+          setRealtimeIndicators(prev => ({
+            ...prev,
+            [assetKey]: {
+              rsi: data.rsi_data || null,
+              macd: data.macd_data || null,
+              macdAngle: data.macd_angle_data || null
+            }
+          }));
+        }
+      };
+      ohlcvWs.onclose = (e) => {
+        setWsConnections(prev => ({ ...prev, ohlcv: false }));
+        console.warn('OHLCV WebSocket disconnected:', e.code, e.reason);
+        setTimeout(() => setupWebSockets(), 5000); // Tenta reconectar
+      };
+      ohlcvWs.onerror = (err) => {
+        console.error('OHLCV WebSocket error:', err);
+        ohlcvWs.close();
+      };
+    } catch (error) {
+      console.error('OHLCV WebSocket setup error:', error);
+    }
+
+    // RSI/MACD WebSocket (para dados específicos que não estão no OHLCV principal)
+    try {
+      const rsiMacdWs = new WebSocket(`ws://${API_BASE.split('//')[1]}/ws/rsi-macd`);
+      rsiMacdWs.onopen = () => {
+        setWsConnections(prev => ({ ...prev, rsiMacd: true }));
+        console.log('RSI/MACD WebSocket connected.');
+      };
+      rsiMacdWs.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        console.log('RSI/MACD specific update:', data);
+        // Exemplo: se este WebSocket envia um sinal combinado global
+        // if (data.type === 'combined_signal') {
+        //   setAlerts(prev => [...prev, { title: "Sinal Combinado!", message: data.message, severity: "MEDIUM", timestamp: new Date().toISOString() }]);
+        // }
+      };
+      rsiMacdWs.onclose = (e) => {
+        setWsConnections(prev => ({ ...prev, rsiMacd: false }));
+        console.warn('RSI/MACD WebSocket disconnected:', e.code, e.reason);
+        setTimeout(() => setupWebSockets(), 5000); // Tenta reconectar
+      };
+      rsiMacdWs.onerror = (err) => {
+        console.error('RSI/MACD WebSocket error:', err);
+        rsiMacdWs.close();
+      };
+    } catch (error) {
+      console.error('RSI/MACD WebSocket setup error:', error);
+    }
+  }, [API_BASE]); // Adicionado API_BASE como dependência
+
+
+  // Bot control functions with environment selection
   const sendBotCommand = useCallback(async (endpoint, method = 'POST', body = {}) => {
     try {
       const response = await fetch(`${API_BASE}/api/trading-bot/${endpoint}`, {
@@ -308,11 +434,11 @@ const BloombergDashboard = () => {
       alert(`Error: ${error.message}`);
       return false;
     }
-  }, [fetchBotStatus]);
+  }, [fetchBotStatus, API_BASE]);
 
   const startBot = useCallback(() => {
     confirmStart(); // Usa a função de confirmação para o LIVE MODE
-  }, []);
+  }, []); // Removido sendBotCommand da dependência para evitar loop
 
   const stopBot = useCallback(() => {
     sendBotCommand('stop');
@@ -330,7 +456,6 @@ const BloombergDashboard = () => {
     sendBotCommand('start', 'POST', { environment: environment });
   };
 
-  // Lógica para mudar o ambiente do bot
   const handleEnvironmentChange = (newEnv) => {
     if (botStatus?.status === 'running') {
       alert('Por favor, pare o bot antes de mudar o ambiente.');
@@ -340,143 +465,7 @@ const BloombergDashboard = () => {
     setShowEnvironmentModal(false);
   };
 
-  // --- Configuração das Conexões WebSocket ---
-  const setupWebSockets = useCallback(() => {
-    const wsBase = `ws://62.72.1.122:8000`; // Ajuste este IP/PORTA se necessário
-
-    // WebSocket de Sentimento
-    const connectSentimentWs = () => {
-      try {
-        const sentimentWs = new WebSocket(`${wsBase}/ws/sentiment`);
-        sentimentWs.onopen = () => {
-          setWsConnections(prev => ({ ...prev, sentiment: true }));
-          console.log('Sentiment WebSocket connected.');
-        };
-        sentimentWs.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          setSentimentData(data);
-        };
-        sentimentWs.onclose = (e) => {
-          setWsConnections(prev => ({ ...prev, sentiment: false }));
-          console.warn('Sentiment WebSocket disconnected:', e.code, e.reason);
-          // Tenta reconectar após um pequeno delay
-          setTimeout(connectSentimentWs, 5000);
-        };
-        sentimentWs.onerror = (err) => {
-          console.error('Sentiment WebSocket error:', err);
-          sentimentWs.close();
-        };
-      } catch (error) {
-        console.error('Sentiment WebSocket setup error:', error);
-      }
-    };
-
-    // WebSocket de OHLCV
-    const connectOhlcvWs = () => {
-      try {
-        const ohlcvWs = new WebSocket(`${wsBase}/ws/ohlcv`);
-        ohlcvWs.onopen = () => {
-          setWsConnections(prev => ({ ...prev, ohlcv: true }));
-          console.log('OHLCV WebSocket connected.');
-        };
-        ohlcvWs.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          if (data.type === 'ohlcv_update') {
-            setChartData(prev => {
-              const newCombined = [...prev.combined];
-              const newCandle = data.candle;
-              const assetKey = data.asset.toLowerCase();
-
-              // Busca ou cria o ponto de dados para o timestamp da nova vela
-              let existingPoint = newCombined.find(
-                p => p.time === newCandle.timestamp * 1000
-              );
-
-              if (existingPoint) {
-                // Atualiza o ponto existente (se for a vela atual ainda em formação)
-                existingPoint[`${assetKey}_price`] = newCandle.close;
-                existingPoint[`${assetKey}_volume`] = newCandle.volume;
-                // Atualiza MACD se os dados estiverem na atualização
-                if (data.macd_data) {
-                  existingPoint[`${assetKey}_macd`] = data.macd_data.macd?.[data.macd_data.macd.length - 1] || null;
-                  existingPoint[`${assetKey}_macd_signal`] = data.macd_data.signal?.[data.macd_data.signal.length - 1] || null;
-                  existingPoint[`${assetKey}_macd_hist`] = data.macd_data.histogram?.[data.macd_data.histogram.length - 1] || null;
-                }
-              } else {
-                // Adiciona um novo ponto se for uma nova vela fechada
-                const newPoint = {
-                  time: newCandle.timestamp * 1000,
-                  date: new Date(newCandle.timestamp * 1000).toLocaleDateString(),
-                  timestamp: newCandle.datetime,
-                  [`${assetKey}_price`]: newCandle.close,
-                  [`${assetKey}_volume`]: newCandle.volume,
-                  [`${assetKey}_macd`]: data.macd_data?.macd?.[data.macd_data.macd.length - 1] || null,
-                  [`${assetKey}_macd_signal`]: data.macd_data?.signal?.[data.macd_data.signal.length - 1] || null,
-                  [`${assetKey}_macd_hist`]: data.macd_data?.histogram?.[data.macd_data.histogram.length - 1] || null,
-                };
-                newCombined.push(newPoint);
-              }
-
-              // Limita o número de pontos para o gráfico (ex: últimos 200)
-              return { ...prev, combined: newCombined.slice(-200) };
-            });
-          }
-        };
-        ohlcvWs.onclose = (e) => {
-          setWsConnections(prev => ({ ...prev, ohlcv: false }));
-          console.warn('OHLCV WebSocket disconnected:', e.code, e.reason);
-          setTimeout(connectOhlcvWs, 5000);
-        };
-        ohlcvWs.onerror = (err) => {
-          console.error('OHLCV WebSocket error:', err);
-          ohlcvWs.close();
-        };
-      } catch (error) {
-        console.error('OHLCV WebSocket setup error:', error);
-      }
-    };
-
-    // WebSocket de RSI/MACD (para o card específico)
-    const connectRsiMacdWs = () => {
-      try {
-        const rsiMacdWs = new WebSocket(`${wsBase}/ws/rsi-macd`);
-        rsiMacdWs.onopen = () => {
-          setWsConnections(prev => ({ ...prev, rsiMacd: true }));
-          console.log('RSI/MACD WebSocket connected.');
-        };
-        rsiMacdWs.onmessage = (event) => {
-          const data = JSON.parse(event.data);
-          // Você pode atualizar um estado específico para o card de RSI/MACD aqui
-          // Por exemplo: setRsiMacdMetrics(data);
-          console.log('RSI/MACD update:', data);
-        };
-        rsiMacdWs.onclose = (e) => {
-          setWsConnections(prev => ({ ...prev, rsiMacd: false }));
-          console.warn('RSI/MACD WebSocket disconnected:', e.code, e.reason);
-          setTimeout(connectRsiMacdWs, 5000);
-        };
-        rsiMacdWs.onerror = (err) => {
-          console.error('RSI/MACD WebSocket error:', err);
-          rsiMacdWs.close();
-        };
-      } catch (error) {
-        console.error('RSI/MACD WebSocket setup error:', error);
-      }
-    };
-
-    connectSentimentWs();
-    connectOhlcvWs();
-    connectRsiMacdWs();
-
-    // Retorna uma função de limpeza para fechar as conexões ao desmontar o componente
-    return () => {
-      // Ws instances are local, so we don't have direct access here for `.close()`
-      // but the `onclose` callback will handle reconnections.
-      // For a more robust cleanup, you might store WS instances in state or refs.
-    };
-  }, []);
-
-  // --- Efeitos de Carregamento Inicial e Intervalos ---
+  // Initial data load and setup intervals
   useEffect(() => {
     const loadInitialData = async () => {
       // Todas as chamadas de fetch REST para dados iniciais
@@ -496,7 +485,7 @@ const BloombergDashboard = () => {
     loadInitialData(); // Carrega os dados REST iniciais
     setupWebSockets(); // Configura e tenta conectar os WebSockets
 
-    // Configura intervalos para atualizações periódicas de dados REST
+    // Setup intervals for periodic updates
     const intervals = {
       marketData: setInterval(fetchMarketData, 30000), // A cada 30 segundos
       botStatus: setInterval(fetchBotStatus, 15000),    // A cada 15 segundos
@@ -515,14 +504,12 @@ const BloombergDashboard = () => {
     fetchAlerts, fetchEconomicCalendar, fetchBacktestRecommendations, fetchFinancialData, setupWebSockets
   ]);
 
-  // Efeito para atualizar dados do gráfico quando o período selecionado muda
+  // Update chart data when period changes
   useEffect(() => {
     if (selectedPeriod) {
       fetchChartData(selectedPeriod);
     }
   }, [selectedPeriod, fetchChartData]);
-
-  // --- Renderização da UI ---
 
   // Tela de Carregamento Inicial
   if (isLoading && !marketData) {
@@ -669,7 +656,7 @@ const BloombergDashboard = () => {
 
       <div className="flex h-screen">
         {/* Sidebar Esquerda */}
-        <div className="w-80 border-r border-gray-800 bg-gray-900 p-4 overflow-y-auto">
+        <div className="w-80 border-r border-gray-800 bg-gray-900 p-4 overflow-y-auto custom-scrollbar">
           {/* Sentimento do Mercado */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
@@ -712,7 +699,7 @@ const BloombergDashboard = () => {
             )}
           </div>
 
-          {/* Calendário Econômico */}
+          {/* Economic Calendar */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <Calendar className="w-4 h-4 mr-2" />
@@ -733,7 +720,7 @@ const BloombergDashboard = () => {
             </div>
           </div>
 
-          {/* Alertas Recentes */}
+          {/* Recent Alerts */}
           <div>
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <Bell className="w-4 h-4 mr-2" />
@@ -759,13 +746,13 @@ const BloombergDashboard = () => {
           </div>
         </div>
 
-        {/* Conteúdo Principal */}
+        {/* Main Content */}
         <div className="flex-1 flex flex-col">
-          {/* Seletor de Período do Gráfico */}
+          {/* Period Selector */}
           <div className="border-b border-gray-800 p-4">
             <div className="flex items-center space-x-4">
               <span className="text-sm text-gray-400">TIMEFRAME:</span>
-              {['5m', '15m', '1h', '1d', '5d', '1mo'].map(period => ( // Adicionei 5d e 1mo conforme seu backend
+              {['5m', '15m', '1h', '1d', '5d', '1mo'].map(period => (
                 <button
                   key={period}
                   onClick={() => setSelectedPeriod(period)}
@@ -797,10 +784,10 @@ const BloombergDashboard = () => {
             </div>
           </div>
 
-          {/* Gráficos */}
+          {/* Charts */}
           <div className="flex-1 p-4">
             <div className="grid grid-cols-1 gap-4 h-full">
-              {/* Gráfico Principal de Preços */}
+              {/* Main Price Chart */}
               <div className="bg-gray-900 border border-gray-800 rounded p-4 h-96">
                 <h3 className="text-sm font-bold text-gray-400 mb-4">GRÁFICO DE PREÇO</h3>
                 <ResponsiveContainer width="100%" height="100%">
@@ -866,9 +853,9 @@ const BloombergDashboard = () => {
                 </ResponsiveContainer>
               </div>
 
-              {/* Gráficos de Volume e MACD */}
+              {/* Volume and MACD Charts */}
               <div className="grid grid-cols-2 gap-4 h-64">
-                {/* Gráfico de Volume */}
+                {/* Volume Chart */}
                 <div className="bg-gray-900 border border-gray-800 rounded p-4">
                   <h3 className="text-sm font-bold text-gray-400 mb-4 flex justify-between">
                     <span>VOLUME (BTC)</span> {/* Alterei para BTC para ser mais específico */}
@@ -929,19 +916,19 @@ const BloombergDashboard = () => {
                   </ResponsiveContainer>
                 </div>
 
-                {/* Gráfico MACD (BTC) */}
+                {/* MACD & RSI (BTC) Chart */}
                 <div className="bg-gray-900 border border-gray-800 rounded p-4">
                   <h3 className="text-sm font-bold text-gray-400 mb-4 flex justify-between">
-                    <span>MACD (BTC)</span>
+                    <span>MACD & RSI (BTC)</span> {/* Título atualizado */}
                     <span className="text-xs">
-                      {chartData.combined?.some(d => d.btc_macd !== null) ?
-                        'Linha de Sinal + Histograma' :
+                      {chartData.combined?.some(d => d.btc_macd !== null || d.btc_rsi !== null) ? // Verifica se tem MACD ou RSI
+                        'Sinal + Histograma + RSI' :
                         'Calculando...'
                       }
                     </span>
                   </h3>
                   <ResponsiveContainer width="100%" height="100%">
-                    {chartData.combined?.length > 0 && chartData.combined.some(d => d.btc_macd !== null) ? (
+                    {chartData.combined?.length > 0 && chartData.combined.some(d => d.btc_macd !== null || d.btc_rsi !== null) ? (
                       <ComposedChart data={chartData.combined}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                         <XAxis
@@ -953,14 +940,18 @@ const BloombergDashboard = () => {
                           stroke="#9CA3AF"
                           fontSize={10}
                         />
-                        <YAxis stroke="#9CA3AF" fontSize={10} />
+                        {/* Eixo Y para MACD */}
+                        <YAxis yAxisId="left" stroke="#9CA3AF" fontSize={10} />
+                        {/* Eixo Y para RSI, se a escala for muito diferente, pode precisar de um segundo eixo Y */}
+                        <YAxis yAxisId="right" orientation="right" stroke="#FF4500" fontSize={10} domain={[0, 100]} /> {/* Eixo para RSI (0-100) */}
                         <Tooltip
                           labelFormatter={(time) => new Date(time).toLocaleString()}
                           formatter={(value, name) => [
                             typeof value === 'number' ? value.toFixed(4) : 'N/A',
-                            name === 'btc_macd' ? 'Linha MACD' :
-                            name === 'btc_macd_signal' ? 'Linha de Sinal' :
-                            name === 'btc_macd_hist' ? 'Histograma' : name
+                            name === 'btc_macd' ? 'MACD Linha' :
+                            name === 'btc_macd_signal' ? 'Sinal Linha' :
+                            name === 'btc_macd_hist' ? 'Histograma' :
+                            name === 'btc_rsi' ? 'RSI' : name
                           ]}
                           contentStyle={{
                             backgroundColor: '#1F2937',
@@ -969,8 +960,9 @@ const BloombergDashboard = () => {
                             color: '#F9FAFB'
                           }}
                         />
-                        {/* Linha MACD */}
+                        {/* MACD Line */}
                         <Line
+                          yAxisId="left"
                           type="monotone"
                           dataKey="btc_macd"
                           stroke="#3B82F6"
@@ -978,8 +970,9 @@ const BloombergDashboard = () => {
                           dot={false}
                           name="MACD"
                         />
-                        {/* Linha de Sinal */}
+                        {/* Signal Line */}
                         <Line
+                          yAxisId="left"
                           type="monotone"
                           dataKey="btc_macd_signal"
                           stroke="#EF4444"
@@ -987,23 +980,34 @@ const BloombergDashboard = () => {
                           dot={false}
                           name="Sinal"
                         />
-                        {/* Histograma */}
+                        {/* Histogram */}
                         {chartData.combined.some(d => d.btc_macd_hist !== null) && (
                           <Bar
+                            yAxisId="left"
                             dataKey="btc_macd_hist"
                             fill="#10B981"
                             name="Histograma"
                             opacity={0.6}
                           />
                         )}
+                        {/* NOVO: RSI Line */}
+                        <Line
+                          yAxisId="right" // Atribua ao segundo eixo Y
+                          type="monotone"
+                          dataKey="btc_rsi"
+                          stroke="#FF4500" // Cor para RSI
+                          strokeWidth={1}
+                          dot={false}
+                          name="RSI"
+                        />
                       </ComposedChart>
                     ) : (
                       <div className="flex items-center justify-center h-full text-gray-500">
                         <div className="text-center">
-                          {isLoading ? 'Carregando dados MACD...' : 'Cálculo do MACD requer mais dados'}
+                          {isLoading ? 'Carregando dados MACD/RSI...' : 'Cálculo requer mais dados'}
                           {chartData.fallback && (
                             <div className="text-xs text-yellow-400 mt-2">
-                              Backend processando indicadores MACD
+                              Backend processando indicadores
                             </div>
                           )}
                           <div className="text-xs text-gray-400 mt-1">
@@ -1019,16 +1023,16 @@ const BloombergDashboard = () => {
           </div>
         </div>
 
-        {/* Sidebar Direita */}
-        <div className="w-80 border-l border-gray-800 bg-gray-900 p-4 overflow-y-auto">
-          {/* Seção de Monitoramento Financeiro */}
+        {/* Right Sidebar */}
+        <div className="w-80 border-l border-gray-800 bg-gray-900 p-4 overflow-y-auto custom-scrollbar">
+          {/* Financial Monitoring Section */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <DollarSign className="w-4 h-4 mr-2" />
               MONITORAMENTO FINANCEIRO
             </h3>
 
-            {/* Abas de Ambiente */}
+            {/* Environment Tabs */}
             <div className="flex mb-4 bg-gray-800 rounded p-1">
               <button
                 onClick={() => setSelectedFinancialTab('testnet')}
@@ -1052,47 +1056,50 @@ const BloombergDashboard = () => {
               </button>
             </div>
 
-            {/* Exibição de Dados Financeiros */}
+            {/* Financial Data Display */}
             {(() => {
-              const currentFinData = financialData[selectedFinancialTab];
+              const currentFinData = financialData[selectedFinancialTab || 'testnet'];
+              const totalPnLFormat = formatPnL(currentFinData.totalPnL);
+              const dailyPnLFormat = formatPnL(currentFinData.dailyPnL);
+              const roiFormat = formatPnL(currentFinData.roiPercent, true);
 
               return (
                 <div className="space-y-3">
-                  {/* Saldo e P&L */}
+                  {/* Balance & P&L */}
                   <div className="bg-gray-800 p-3 rounded">
                     <div className="grid grid-cols-2 gap-3 text-xs">
                       <div>
-                        <div className="text-gray-400">Saldo Atual</div>
+                        <div className="text-gray-400">Current Balance</div>
                         <div className="text-lg font-bold text-blue-400">
                           {formatCurrency(currentFinData.balance)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-400">Saldo Inicial</div>
+                        <div className="text-gray-400">Start Balance</div>
                         <div className="text-sm text-gray-300">
                           {formatCurrency(currentFinData.startBalance)}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-400">P&L Total</div>
-                        <div className={`text-lg font-bold ${formatPnL(currentFinData.totalPnL).colorClass}`}>
-                          {formatPnL(currentFinData.totalPnL).formatted}
+                        <div className="text-gray-400">Total P&L</div>
+                        <div className={`text-lg font-bold ${totalPnLFormat.colorClass}`}>
+                          {totalPnLFormat.formatted}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-400">P&L Diário</div>
-                        <div className={`text-sm font-bold ${formatPnL(currentFinData.dailyPnL).colorClass}`}>
-                          {formatPnL(currentFinData.dailyPnL).formatted}
+                        <div className="text-gray-400">Daily P&L</div>
+                        <div className={`text-sm font-bold ${dailyPnLFormat.colorClass}`}>
+                          {dailyPnLFormat.formatted}
                         </div>
                       </div>
                       <div>
                         <div className="text-gray-400">ROI</div>
-                        <div className={`text-sm font-bold ${formatPnL(currentFinData.roiPercent).colorClass}`}>
-                          {formatPnL(currentFinData.roiPercent, true).formatted}
+                        <div className={`text-sm font-bold ${roiFormat.colorClass}`}>
+                          {roiFormat.formatted}
                         </div>
                       </div>
                       <div>
-                        <div className="text-gray-400">Drawdown Máx</div>
+                        <div className="text-gray-400">Max Drawdown</div>
                         <div className="text-sm font-bold text-red-400">
                           -{currentFinData.maxDrawdown.toFixed(2)}%
                         </div>
@@ -1100,9 +1107,9 @@ const BloombergDashboard = () => {
                     </div>
                   </div>
 
-                  {/* Estatísticas de Trading */}
+                  {/* Trading Statistics */}
                   <div className="bg-gray-800 p-3 rounded">
-                    <div className="text-xs text-gray-400 mb-2">ESTATÍSTICAS DE TRADING</div>
+                    <div className="text-xs text-gray-400 mb-2">TRADING STATS</div>
                     <div className="grid grid-cols-3 gap-2 text-xs">
                       <div className="text-center">
                         <div className="text-lg font-bold text-blue-400">
@@ -1114,18 +1121,18 @@ const BloombergDashboard = () => {
                         <div className="text-lg font-bold text-green-400">
                           {currentFinData.winningTrades}
                         </div>
-                        <div className="text-gray-400">Vencedores</div>
+                        <div className="text-gray-400">Winners</div>
                       </div>
                       <div className="text-center">
                         <div className="text-lg font-bold text-red-400">
                           {currentFinData.totalTrades - currentFinData.winningTrades}
                         </div>
-                        <div className="text-gray-400">Perdedores</div>
+                        <div className="text-gray-400">Losers</div>
                       </div>
                     </div>
                     <div className="mt-2 pt-2 border-t border-gray-700">
                       <div className="flex justify-between text-xs">
-                        <span className="text-gray-400">Taxa de Vitória:</span>
+                        <span className="text-gray-400">Win Rate:</span>
                         <span className={`font-bold ${
                           currentFinData.winRate > 60 ? 'text-green-400' :
                           currentFinData.winRate > 40 ? 'text-yellow-400' : 'text-red-400'
@@ -1134,23 +1141,22 @@ const BloombergDashboard = () => {
                         </span>
                       </div>
                       <div className="flex justify-between text-xs mt-1">
-                        <span className="text-gray-400">Última Atualização:</span>
+                        <span className="text-gray-400">Last Update:</span>
                         <span className="text-gray-300">
                           {currentFinData.lastUpdate ?
                             new Date(currentFinData.lastUpdate).toLocaleTimeString() :
-                            'Nunca'
+                            'Never'
                           }
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Gráfico de Performance (simples) */}
+                  {/* Performance Chart (Simple) */}
                   <div className="bg-gray-800 p-3 rounded">
-                    <div className="text-xs text-gray-400 mb-2">VISÃO GERAL DA PERFORMANCE</div>
+                    <div className="text-xs text-gray-400 mb-2">PERFORMANCE OVERVIEW</div>
                     <div className="h-20 flex items-end space-x-1">
-                      {/* Dados reais do backtest ou simulados para o gráfico */}
-                      {/* Para uma visualização real, você precisaria de um endpoint de histórico de saldo */}
+                      {/* Simple bar chart showing recent performance */}
                       {Array.from({length: 7}, (_, i) => {
                           const randomPnl = (Math.random() * 20 - 10); // PnL aleatório entre -10 e 10
                           const height = Math.abs(randomPnl) * 3 + 10; // Escala para o gráfico
@@ -1160,7 +1166,7 @@ const BloombergDashboard = () => {
                               key={i}
                               className={`flex-1 rounded-t ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
                               style={{ height: `${height}%` }}
-                              title={`Dia ${i + 1}: ${formatPnL(randomPnl).formatted}`}
+                              title={`Day ${i + 1}: ${formatPnL(randomPnl).formatted}`}
                             />
                           );
                       })}
@@ -1174,7 +1180,84 @@ const BloombergDashboard = () => {
             })()}
           </div>
 
-          {/* Trades Recentes */}
+          {/* Real-time Indicators Section - NOVO CARD */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Activity className="w-4 h-4 mr-2" />
+              INDICADORES EM TEMPO REAL (BTC)
+            </h3>
+            <div className="space-y-3">
+              {realtimeIndicators.btc.rsi && realtimeIndicators.btc.macd && realtimeIndicators.btc.macdAngle ? (
+                <>
+                  {/* RSI */}
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400">RSI (14)</div>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className={`text-xl font-bold ${
+                        realtimeIndicators.btc.rsi.last_value > 70 ? 'text-red-400' :
+                        realtimeIndicators.btc.rsi.last_value < 30 ? 'text-green-400' :
+                        'text-blue-400'
+                      }`}>
+                        {realtimeIndicators.btc.rsi.last_value.toFixed(2)}
+                      </span>
+                      {realtimeIndicators.btc.rsi.angle !== undefined && (
+                        <span className="text-sm text-gray-300 flex items-center">
+                          <Compass className="w-4 h-4 mr-1 text-gray-500" />
+                          {realtimeIndicators.btc.rsi.angle.toFixed(1)}°
+                          <span className={`ml-1 text-xs ${
+                            realtimeIndicators.btc.rsi.trend === 'RISING' ? 'text-green-400' :
+                            realtimeIndicators.btc.rsi.trend === 'FALLING' ? 'text-red-400' :
+                            'text-gray-400'
+                          }`}>
+                            ({realtimeIndicators.btc.rsi.trend})
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        {realtimeIndicators.btc.rsi.last_value > 70 ? 'SOBRECOMPRADO' :
+                        realtimeIndicators.btc.rsi.last_value < 30 ? 'SOBREVENDIDO' :
+                        'NEUTRO'}
+                    </div>
+                  </div>
+
+                  {/* MACD */}
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400">MACD (12, 26, 9)</div>
+                    <div className="flex justify-between items-center mt-1">
+                        <span className={`text-xl font-bold ${
+                            (realtimeIndicators.btc.macd.histogram?.[realtimeIndicators.btc.macd.histogram.length - 1] || 0) > 0 ? 'text-green-400' :
+                            (realtimeIndicators.btc.macd.histogram?.[realtimeIndicators.btc.macd.histogram.length - 1] || 0) < 0 ? 'text-red-400' :
+                            'text-blue-400'
+                        }`}>
+                            Hist: {(realtimeIndicators.btc.macd.histogram?.[realtimeIndicators.btc.macd.histogram.length - 1] || 0).toFixed(3)}
+                        </span>
+                        {realtimeIndicators.btc.macdAngle && (
+                          <span className="text-sm text-gray-300 flex items-center">
+                            <Compass className="w-4 h-4 mr-1 text-gray-500" />
+                            MACD: {realtimeIndicators.btc.macdAngle.macd_angle.toFixed(1)}°
+                            <span className={`ml-1 text-xs ${
+                              realtimeIndicators.btc.macdAngle.macd_angle > 0 ? 'text-green-400' :
+                              realtimeIndicators.btc.macdAngle.macd_angle < 0 ? 'text-red-400' :
+                              'text-gray-400'
+                            }`}>
+                                ({realtimeIndicators.btc.macdAngle.macd_angle > 0 ? 'SUBINDO' : realtimeIndicators.btc.macdAngle.macd_angle < 0 ? 'CAINDO' : 'PLANO'})
+                            </span>
+                          </span>
+                        )}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                        Linha: {(realtimeIndicators.btc.macd.macd?.[realtimeIndicators.btc.macd.macd.length - 1] || 0).toFixed(3)} | Sinal: {(realtimeIndicators.btc.macd.signal?.[realtimeIndicators.btc.macd.signal.length - 1] || 0).toFixed(3)}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="text-gray-500 text-sm text-center">Aguardando dados de indicadores em tempo real...</div>
+              )}
+            </div>
+          </div>
+
+          {/* Recent Trades */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <Activity className="w-4 h-4 mr-2" />
@@ -1223,7 +1306,7 @@ const BloombergDashboard = () => {
             </div>
           </div>
 
-          {/* Performance do Bot AI (Detalhes) */}
+          {/* Bot Performance */}
           {botStatus && (
             <div className="mb-6">
               <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
@@ -1267,11 +1350,11 @@ const BloombergDashboard = () => {
                         </div>
                         <div className="grid grid-cols-2 gap-1 mt-1">
                           <div>
-                            <div className="text-gray-400">Entrada</div>
+                            <div className="text-gray-400">Entry</div>
                             <div className="font-bold">{formatCurrency(position.entry_price)}</div>
                           </div>
                           <div>
-                            <div className="text-gray-400">Atual</div>
+                            <div className="text-gray-400">Current</div>
                             <div className="font-bold">{formatCurrency(position.current_price)}</div>
                           </div>
                           <div>
@@ -1281,7 +1364,7 @@ const BloombergDashboard = () => {
                             </div>
                           </div>
                           <div>
-                            <div className="text-gray-400">Conf. IA</div>
+                            <div className="text-gray-400">AI Conf</div>
                             <div className="font-bold text-purple-400">{(position.ai_prediction * 100).toFixed(1)}%</div>
                           </div>
                         </div>
@@ -1293,7 +1376,7 @@ const BloombergDashboard = () => {
             </div>
           )}
 
-          {/* Recomendações de Backtest */}
+          {/* Backtest Recommendations */}
           <div className="mb-6">
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <BarChart3 className="w-4 h-4 mr-2" />
@@ -1325,7 +1408,7 @@ const BloombergDashboard = () => {
                       <div className="font-bold text-blue-400">{rec.expected_return}</div>
                     </div>
                     <div>
-                      <div className="text-gray-400">Drawdown Máx</div>
+                      <div className="text-gray-400">Max DD</div>
                       <div className="font-bold text-red-400">{rec.max_drawdown}</div>
                     </div>
                   </div>
@@ -1343,7 +1426,7 @@ const BloombergDashboard = () => {
             </div>
           </div>
 
-          {/* Status do Sistema */}
+          {/* System Status */}
           <div>
             <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
               <Settings className="w-4 h-4 mr-2" />
@@ -1353,13 +1436,13 @@ const BloombergDashboard = () => {
               <div className="bg-gray-800 p-3 rounded text-xs">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <div className="text-gray-400">Status da API</div>
+                    <div className="text-gray-400">API Status</div>
                     <div className={`font-bold ${connectionStatus === 'connected' ? 'text-green-400' : 'text-red-400'}`}>
                       {connectionStatus.toUpperCase()}
                     </div>
                   </div>
                   <div>
-                    <div className="text-gray-400">Fonte de Dados</div>
+                    <div className="text-gray-400">Data Source</div>
                     <div className="font-bold text-blue-400">Gate.io + YFinance</div>
                   </div>
                   <div>
@@ -1382,11 +1465,11 @@ const BloombergDashboard = () => {
                   <div className="text-gray-400 mb-2">Atualização dos Dados</div>
                   <div className="space-y-1">
                     <div className="flex justify-between">
-                      <span>Dados de Preço:</span>
+                      <span>Price Data:</span>
                       <span className="text-green-400">LIVE</span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Sentimento:</span>
+                      <span>Sentiment:</span>
                       <span className={wsConnections.sentiment ? 'text-green-400' : 'text-red-400'}>
                         {wsConnections.sentiment ? 'LIVE' : 'OFFLINE'}
                       </span>
@@ -1398,7 +1481,7 @@ const BloombergDashboard = () => {
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span>Indicadores:</span>
+                      <span>Indicators:</span>
                       <span className={wsConnections.rsiMacd ? 'text-green-400' : 'text-red-400'}>
                         {wsConnections.rsiMacd ? 'LIVE' : 'OFFLINE'}
                       </span>
@@ -1419,7 +1502,7 @@ const BloombergDashboard = () => {
         </div>
       </div>
 
-      {/* Modal de Seleção de Ambiente */}
+      {/* Environment Selection Modal */}
       {showEnvironmentModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">

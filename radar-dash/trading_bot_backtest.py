@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-🤖 BOT DE TRADING COM IA LEVE v2.1 - VERSÃO CORRIGIDA
+🤖 BOT DE TRADING COM IA LEVE v2.1 - VERSÃO CORRIGIDA E ATUALIZADA
 Integração: Machine Learning + Análise de Sentimento + Padrões Históricos + Calendário FRED + CryptoPanic
-Estratégia: SuperTrend + VWAP + RSI + Volume + Multi-Timeframe + Filtros IA
+Estratégia: SuperTrend + VWAP + RSI + Volume + Multi-Timeframe + Filtros IA + ANÁLISE AVANÇADA TALIB
 """
 
 import os
@@ -54,6 +54,13 @@ try:
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
+
+try:
+    import talib
+    TALIB_AVAILABLE = True
+except ImportError:
+    TALIB_AVAILABLE = False
+
 
 load_dotenv()
 
@@ -299,6 +306,174 @@ def get_gateio_data_safe(symbol: str, interval: str, limit: int) -> pd.DataFrame
         logging.getLogger(__name__).error(f"Erro inesperado em get_gateio_data_safe para {symbol}: {e}")
         return pd.DataFrame()
 
+# ============================================================================
+# 🚀 FUNÇÕES TALIB ADICIONADAS
+# ============================================================================
+
+def calcular_angulo(series: np.ndarray) -> float:
+    """
+    Calcula o ângulo (em graus) entre o penúltimo e o último ponto,
+    considerando uma distância de 2 períodos.
+    Retorna 0 se houver dados insuficientes ou NaN.
+    """
+    if not TALIB_AVAILABLE:
+        return 0.0 # Retorna neutro se TALIB não estiver disponível
+    if len(series) < 3 or np.isnan(series[-3]) or np.isnan(series[-1]):
+        return 0.0
+    angulo_rad = np.arctan2((series[-1] - series[-3]), 2)  # 2 candles de distância
+    return np.degrees(angulo_rad)
+
+def calcular_supertrend_talib(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 10, multiplier: float = 3.0) -> np.ndarray:
+    """
+    Calcula a linha do SuperTrend usando a implementação TALIB para ATR e lógica customizada.
+    Retorna um array numpy com a linha SuperTrend.
+    """
+    if not TALIB_AVAILABLE:
+        return np.full_like(close, np.nan) # Retorna NaN se TALIB não estiver disponível
+
+    if len(high) < period or len(low) < period or len(close) < period:
+        return np.full_like(close, np.nan) # Dados insuficientes
+
+    atr = talib.ATR(high, low, close, timeperiod=period)
+    
+    # Certifique-se de que `atr` tem o mesmo comprimento de `close` preenchendo o início com NaN
+    # A função ATR do talib retorna um array menor no início, preenchemos com NaN para alinhamento
+    atr_full = np.concatenate((np.full(period - 1, np.nan), atr))
+
+
+    hl2 = (high + low) / 2
+    upperband = hl2 + (multiplier * atr_full)
+    lowerband = hl2 - (multiplier * atr_full)
+    
+    final_upperband = np.copy(upperband)
+    final_lowerband = np.copy(lowerband)
+    supertrend_line = np.full_like(close, np.nan) # Renomeado para evitar conflito com 'supertrend'
+
+    # Inicializa o primeiro valor do supertrend_line baseado na primeira banda válida
+    for i in range(len(close)):
+        if not np.isnan(upperband[i]) and not np.isnan(lowerband[i]): # Garante que as bandas iniciais são válidas
+            if close[i] > upperband[i]:
+                supertrend_line[i] = lowerband[i]
+            elif close[i] < lowerband[i]:
+                supertrend_line[i] = upperband[i]
+            else: # Se o preço está entre as bandas no primeiro ponto
+                 supertrend_line[i] = lowerband[i] # Default para uptrend na ausência de uma direção clara
+            break # Sair do loop após inicializar o primeiro ponto válido
+
+    for i in range(1, len(close)):
+        if np.isnan(close[i]) or np.isnan(upperband[i]) or np.isnan(lowerband[i]) or np.isnan(final_upperband[i-1]) or np.isnan(final_lowerband[i-1]):
+            supertrend_line[i] = supertrend_line[i-1] if i > 0 else np.nan # Mantém o último valor válido ou nan
+            final_upperband[i] = final_upperband[i-1] if i > 0 else np.nan
+            final_lowerband[i] = final_lowerband[i-1] if i > 0 else np.nan
+            continue
+
+        # Final Upper Band
+        if close[i - 1] <= final_upperband[i - 1]:
+            final_upperband[i] = min(upperband[i], final_upperband[i - 1])
+        else:
+            final_upperband[i] = upperband[i] # Se rompeu a banda superior, reset
+
+        # Final Lower Band
+        if close[i - 1] >= final_lowerband[i - 1]:
+            final_lowerband[i] = max(lowerband[i], final_lowerband[i - 1])
+        else:
+            final_lowerband[i] = lowerband[i] # Se rompeu a banda inferior, reset
+
+        # Determine SuperTrend value
+        if close[i] > final_upperband[i - 1]: # If current price is above previous final upper band
+            supertrend_line[i] = final_lowerband[i]
+        elif close[i] < final_lowerband[i - 1]: # If current price is below previous final lower band
+            supertrend_line[i] = final_upperband[i]
+        else: # If price is within the previous bands, maintain previous SuperTrend value
+            supertrend_line[i] = supertrend_line[i-1]
+
+    return supertrend_line
+
+def avaliar_entrada(df_1m: pd.DataFrame, df_15m: pd.DataFrame) -> str:
+    """
+    Avalia condições de entrada combinando múltiplos indicadores TALIB em dois timeframes.
+    Retorna "ENTRADA FORTE", "AGUARDAR CONFIRMAÇÃO DE FORÇA" ou "SEM SINAL".
+    """
+    if not TALIB_AVAILABLE:
+        return "SEM SINAL" # Sem TALIB, não há avaliação
+
+    # Verificação de dados mínimos
+    if len(df_1m) < 30 or len(df_15m) < 30: # Ajuste conforme necessário para os períodos dos indicadores
+        return "SEM SINAL"
+
+    close_1m = df_1m['Close'].values
+    high_1m = df_1m['High'].values
+    low_1m = df_1m['Low'].values
+    volume_1m = df_1m['Volume'].values
+
+    close_15m = df_15m['Close'].values
+    high_15m = df_15m['High'].values
+    low_15m = df_15m['Low'].values
+    # volume_15m seria para OBV em 15m, mas sua função usa volume_1m
+
+    # STOCHRSI 1m
+    # Certifique-se de que os arrays são grandes o suficiente para talib
+    if len(close_1m) < 14 + 3: # min period + fastk_period
+        return "SEM SINAL"
+    fastk_1m, fastd_1m = talib.STOCHRSI(close_1m, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
+    
+    # Verificar NaNs no final das séries do talib
+    if np.isnan(fastk_1m[-1]) or np.isnan(fastd_1m[-1]) or len(fastk_1m) < 3:
+        return "SEM SINAL"
+
+    angulo_1m = calcular_angulo(fastk_1m)
+    cruzamento_1m = fastk_1m[-2] < fastd_1m[-2] and fastk_1m[-1] > fastd_1m[-1]
+    curvatura_positiva = False
+    if len(fastk_1m) >= 3 and not np.isnan(fastk_1m[-3]) and not np.isnan(fastk_1m[-2]) and not np.isnan(fastk_1m[-1]):
+        curvatura_positiva = fastk_1m[-3] > fastk_1m[-2] and fastk_1m[-2] < fastk_1m[-1]  # forma de “U” na %K
+
+    # STOCHRSI 15m
+    if len(close_15m) < 14 + 3: # min period + fastk_period
+        return "SEM SINAL"
+    fastk_15m, fastd_15m = talib.STOCHRSI(close_15m, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
+
+    if np.isnan(fastk_15m[-1]) or np.isnan(fastd_15m[-1]) or len(fastk_15m) < 3:
+        return "SEM SINAL"
+
+    angulo_15m = calcular_angulo(fastk_15m)
+    cond_15m = fastk_15m[-1] > fastd_15m[-1] and fastk_15m[-1] > 20 and angulo_15m > 20
+
+    # MACD 15m
+    if len(close_15m) < 26 + 9: # slowperiod + signalperiod
+        return "SEM SINAL"
+    macd, signal, hist = talib.MACD(close_15m, fastperiod=12, slowperiod=26, signalperiod=9)
+
+    if np.isnan(hist[-1]) or len(hist) < 3:
+        return "SEM SINAL"
+
+    slope_macd = hist[-1] - hist[-3]
+    cond_macd = macd[-1] > signal[-1] and slope_macd > 0
+
+    # SuperTrend 15m (usando a nova função talib)
+    if len(high_15m) < 10 or len(low_15m) < 10 or len(close_15m) < 10:
+        return "SEM SINAL"
+    supertrend_line = calcular_supertrend_talib(high_15m, low_15m, close_15m)
+    
+    if np.isnan(supertrend_line[-1]):
+        return "SEM SINAL"
+
+    cond_supertrend = close_15m[-1] > supertrend_line[-1] # Condição para LONG
+
+    # Volume força 1m
+    if len(volume_1m) < 20:
+        return "SEM SINAL"
+    vol_sma = np.mean(volume_1m[-20:])
+    cond_volume = volume_1m[-1] > vol_sma
+
+    # Decisão final
+    if (cruzamento_1m and curvatura_positiva and angulo_1m > 45 and
+        cond_15m and cond_macd and cond_supertrend and cond_volume):
+        return "ENTRADA FORTE"
+    elif cruzamento_1m and curvatura_positiva and angulo_1m > 45 and cond_15m:
+        return "AGUARDAR CONFIRMAÇÃO DE FORÇA"
+    else:
+        return "SEM SINAL"
+
 
 # ============================================================================
 # 🧠 CLASSES DE MACHINE LEARNING (continuam iguais...)
@@ -333,6 +508,9 @@ class AIFeatures:
     
     # Features de padrão
     pattern_score: float  # Score do pattern matcher
+
+    # Novas features da análise TALIB avançada
+    talib_entrada_score: float # 0.0 (SEM SINAL), 0.5 (AGUARDAR), 1.0 (ENTRADA FORTE)
     
     def to_array(self) -> np.ndarray:
         """Converte para array numpy para ML"""
@@ -342,7 +520,8 @@ class AIFeatures:
             self.macd_signal_diff, self.candle_size, self.upper_shadow,
             self.lower_shadow, self.trend_strength, self.volatility_regime,
             self.time_of_day, self.price_momentum_5, self.price_momentum_10,
-            self.volume_momentum, self.pattern_score
+            self.volume_momentum, self.pattern_score,
+            self.talib_entrada_score # Incluída a nova feature
         ])
 
 class PatternMatcher:
@@ -622,17 +801,18 @@ class MLPredictor:
         # Tentar carregar modelo existente
         self.load_model()
     
-    def extract_features(self, df: pd.DataFrame, pattern_score: float = 0.5) -> Optional[AIFeatures]:
-        """Extrai features dos dados OHLCV"""
-        if len(df) < 20: # Ensure enough data for indicators
+    def extract_features(self, df: pd.DataFrame, pattern_score: float = 0.5, symbol: str = "") -> Optional[AIFeatures]:
+        """Extrai features dos dados OHLCV, incluindo a nova feature TALIB."""
+        if len(df) < 50: # Ensure enough data for indicators, especially for TALIB
+            self.logger.debug(f"Dados insuficientes para extrair features para {symbol}. Len: {len(df)}")
             return None
         
         try:
             current = df.iloc[-1]
             
-            # Indicadores técnicos
+            # === Indicadores técnicos tradicionais ===
             rsi = ta.momentum.rsi(df['Close'], window=14).iloc[-1]
-            supertrend_dir = self.calculate_supertrend_direction(df)
+            supertrend_dir = self.calculate_supertrend_direction(df) # Usa a versão atualizada do SuperTrend
             
             # VWAP
             vwap = self.calculate_vwap(df).iloc[-1]
@@ -692,6 +872,45 @@ class MLPredictor:
             price_momentum_10 = ((current['Close'] - df['Close'].iloc[-11]) / df['Close'].iloc[-11] * 100) if len(df) >= 11 and df['Close'].iloc[-11] > 0 else 0
             volume_momentum = ((current['Volume'] - df['Volume'].iloc[-6]) / df['Volume'].iloc[-6] * 100) if len(df) >= 6 and df['Volume'].iloc[-6] > 0 else 0
             
+            # === NOVA FEATURE: TALIB Entrada Score ===
+            talib_entrada_score = 0.0 # Valor padrão
+            if TALIB_AVAILABLE and symbol:
+                # Obtenha os DataFrames de 1m e 15m do cache do analyzer (assumindo que analyzer é passado ou acessível)
+                # IMPORTANTE: `df` aqui é o DataFrame principal (e.g., 5m), então use-o como df_1m se for o caso.
+                # Para backtest, df_1m e df_15m serão preenchidos pelo simulador.
+                df_1m_talib = df # Assumindo que a função é chamada com df_5m como o principal
+                
+                # Para acesso ao cache do analyzer, a instância do analyzer precisa ser passada ou acessível
+                # No fluxo normal, analyzer é um atributo do bot, e o predictor é um atributo do analyzer.
+                # Então, self.analyzer.data_cache seria acessível se 'analyzer' fosse passado.
+                # Para simplificar, vou assumir que `self.analyzer` estará disponível aqui através da injeção de dependência ou referência.
+                # Se não, `self.analyzer` precisaria ser um atributo de MLPredictor definido no __init__.
+                
+                # Temporariamente, para que extract_features funcione de forma mais independente:
+                # Essa parte é um pouco complicada na integração direta sem passar o `analyzer` para o `MLPredictor`.
+                # Idealmente, `extract_features` receberia `data_cache` ou os DataFrames de todos os timeframes.
+                # Para o backtest e simulação, o bot garante que o `data_cache` do analyzer esteja preenchido.
+                # Assumindo que `self.analyzer` é acessível aqui (o que é verdade no contexto do AIEnhancedAnalyzer):
+
+                # Verifica se self.analyzer existe e se o cache tem os dados necessários
+                if hasattr(self, 'analyzer') and self.analyzer.data_cache.get(symbol, {}).get('15m') is not None:
+                    df_15m_talib = self.analyzer.data_cache[symbol]['15m']
+                    
+                    sinal_string = avaliar_entrada(df_1m_talib, df_15m_talib)
+                    if sinal_string == "ENTRADA FORTE":
+                        talib_entrada_score = 1.0
+                    elif sinal_string == "AGUARDAR CONFIRMAÇÃO DE FORÇA":
+                        talib_entrada_score = 0.5
+                    else: # "SEM SINAL"
+                        talib_entrada_score = 0.0
+                else:
+                    self.logger.debug(f"TALIB: Dados 15m para {symbol} não disponíveis no cache para avaliar entrada.")
+                    talib_entrada_score = 0.0 # Sem dados, score neutro
+            else:
+                self.logger.debug("TALIB não disponível ou símbolo não fornecido para avaliação de entrada.")
+                talib_entrada_score = 0.0 # TALIB não disponível, score neutro
+
+
             return AIFeatures(
                 rsi=rsi if not pd.isna(rsi) else 50.0,
                 supertrend_dir=supertrend_dir,
@@ -709,98 +928,57 @@ class MLPredictor:
                 price_momentum_5=price_momentum_5,
                 price_momentum_10=price_momentum_10,
                 volume_momentum=volume_momentum,
-                pattern_score=pattern_score
+                pattern_score=pattern_score,
+                talib_entrada_score=talib_entrada_score # Passa a nova feature
             )
             
         except Exception as e:
-            self.logger.error(f"Erro ao extrair features: {e}", exc_info=True)
+            self.logger.error(f"Erro ao extrair features para {symbol}: {e}", exc_info=True)
             return None
     
     def calculate_supertrend_direction(self, df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> int:
         """
-        Calcula direção do SuperTrend - VERSÃO CORRIGIDA
+        Calcula direção do SuperTrend usando a nova função `calcular_supertrend_talib`.
         
         Returns:
         1 for uptrend, -1 for downtrend, 0 for neutral/error
         """
+        if not TALIB_AVAILABLE:
+            self.logger.warning("TALIB não disponível. Usando SuperTrend baseado em MA como fallback.")
+            if len(df) >= 20:
+                ma20 = df['Close'].rolling(20).mean().iloc[-1]
+                if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
+                    return 1
+                elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
+                    return -1
+            return 0
+
         try:
-            if len(df) < period + 1:
-                # Not enough data, fallback to simple MA trend
-                if len(df) >= 20:
-                    ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                    if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
-                        return 1
-                    elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
-                        return -1
-                return 0
+            high_arr = df['High'].values
+            low_arr = df['Low'].values
+            close_arr = df['Close'].values
+
+            if len(close_arr) < period + 1:
+                self.logger.debug(f"Dados insuficientes para SuperTrend TALIB. Len: {len(close_arr)}")
+                return 0 # Não há dados suficientes, retorna neutro
+
+            supertrend_line = calcular_supertrend_talib(high_arr, low_arr, close_arr, period, multiplier)
             
-            # Calculate ATR
-            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=period)
-            
-            # Calculate HL2 (median price)
-            hl2 = (df['High'] + df['Low']) / 2
-            
-            # Calculate basic upper and lower bands
-            upper_band = hl2 + (multiplier * atr)
-            lower_band = hl2 - (multiplier * atr)
-            
-            # Initialize arrays
-            final_upper_band = np.zeros(len(df))
-            final_lower_band = np.zeros(len(df))
-            supertrend = np.zeros(len(df))
-            direction = np.zeros(len(df))
-            
-            for i in range(len(df)):
-                if i == 0:
-                    final_upper_band[i] = upper_band.iloc[i]
-                    final_lower_band[i] = lower_band.iloc[i]
-                else:
-                    # Final Upper Band
-                    if upper_band.iloc[i] < final_upper_band[i-1] or df['Close'].iloc[i-1] > final_upper_band[i-1]:
-                        final_upper_band[i] = upper_band.iloc[i]
-                    else:
-                        final_upper_band[i] = final_upper_band[i-1]
-                    
-                    # Final Lower Band
-                    if lower_band.iloc[i] > final_lower_band[i-1] or df['Close'].iloc[i-1] < final_lower_band[i-1]:
-                        final_lower_band[i] = lower_band.iloc[i]
-                    else:
-                        final_lower_band[i] = final_lower_band[i-1]
-            
-            # Calculate SuperTrend and Direction
-            for i in range(len(df)):
-                if i == 0:
-                    # Initialize first value
-                    if df['Close'].iloc[i] <= final_lower_band[i]:
-                        supertrend[i] = final_upper_band[i]
-                        direction[i] = -1
-                    else:
-                        supertrend[i] = final_lower_band[i] 
-                        direction[i] = 1
-                else:
-                    # Determine trend direction
-                    if supertrend[i-1] == final_upper_band[i-1] and df['Close'].iloc[i] < final_upper_band[i]:
-                        supertrend[i] = final_upper_band[i]
-                        direction[i] = -1
-                    elif supertrend[i-1] == final_upper_band[i-1] and df['Close'].iloc[i] >= final_upper_band[i]:
-                        supertrend[i] = final_lower_band[i]
-                        direction[i] = 1
-                    elif supertrend[i-1] == final_lower_band[i-1] and df['Close'].iloc[i] > final_lower_band[i]:
-                        supertrend[i] = final_lower_band[i]
-                        direction[i] = 1
-                    elif supertrend[i-1] == final_lower_band[i-1] and df['Close'].iloc[i] <= final_lower_band[i]:
-                        supertrend[i] = final_upper_band[i]
-                        direction[i] = -1
-                    else:
-                        supertrend[i] = supertrend[i-1]
-                        direction[i] = direction[i-1]
-            
-            # Return the latest direction
-            return int(direction[-1])
-            
+            if np.isnan(supertrend_line[-1]):
+                self.logger.debug("SuperTrend TALIB resultou em NaN. Retornando neutro.")
+                return 0 # Se o cálculo falhou (NaN), retorna neutro
+
+            # Determine a direção
+            if close_arr[-1] > supertrend_line[-1]:
+                return 1 # Uptrend
+            elif close_arr[-1] < supertrend_line[-1]:
+                return -1 # Downtrend
+            else:
+                return 0 # Neutral ou preço na linha
+
         except Exception as e:
-            self.logger.error(f"Erro ao calcular SuperTrend direction: {e}")
-            # Fallback to MA-based trend if SuperTrend calculation fails
+            self.logger.error(f"Erro ao calcular SuperTrend direction com TALIB: {e}")
+            # Fallback para MA-based trend if SuperTrend calculation fails
             if len(df) >= 20:
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
@@ -1596,6 +1774,8 @@ class AIEnhancedAnalyzer:
         
         # Componentes de IA
         self.ml_predictor = MLPredictor(environment)
+        # Injetar referência para o analyzer no predictor para acesso ao data_cache
+        self.ml_predictor.analyzer = self 
         self.pattern_matcher = PatternMatcher(AI_CONFIG['pattern_memory_size'])
         self.sentiment_analyzer = SentimentAnalyzer()
         
@@ -1720,7 +1900,8 @@ class AIEnhancedAnalyzer:
             pattern_score = self.pattern_matcher.get_pattern_score(pattern)
             
             # === 3. EXTRAÇÃO DE FEATURES PARA IA ===
-            features = self.ml_predictor.extract_features(df, pattern_score)
+            # Passa o símbolo para que extract_features possa acessar outros timeframes do cache
+            features = self.ml_predictor.extract_features(df, pattern_score, symbol=symbol) 
             if not features:
                 self.logger.debug(f"Falha ao extrair features para IA para {symbol}.")
                 return None
@@ -1788,7 +1969,7 @@ class AIEnhancedAnalyzer:
             # Calcular indicadores
             df = df.copy()
             
-            # SuperTrend
+            # SuperTrend (usará a versão atualizada no ml_predictor)
             supertrend_dir = self.ml_predictor.calculate_supertrend_direction(df)
             
             # VWAP
@@ -1918,8 +2099,8 @@ class AIEnhancedAnalyzer:
                     self.logger.warning("Sinal sem features para treinamento de ML. Pulando.")
             
             # Adicionar resultado para pattern matching
-            if signal.symbol in self.analyzer.data_cache and '5m' in self.analyzer.data_cache[signal.symbol]:
-                df = self.analyzer.data_cache[signal.symbol]['5m']
+            if signal.symbol in self.data_cache and '5m' in self.data_cache[signal.symbol]:
+                df = self.data_cache[signal.symbol]['5m']
                 pattern = self.pattern_matcher.extract_pattern(df)
                 self.pattern_matcher.add_outcome(pattern, outcome)
             
@@ -2008,6 +2189,10 @@ class AIEnhancedTradingBot:
             self.logger.info("✅ YFinance disponível para dados históricos")
         else:
             self.logger.warning("⚠️ YFinance NÃO disponível. Backtesting pode ser limitado.")
+        if TALIB_AVAILABLE:
+            self.logger.info("✅ TA-Lib disponível para indicadores avançados")
+        else:
+            self.logger.warning("⚠️ TA-Lib NÃO disponível. Algumas análises avançadas podem ser limitadas.")
         if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
             self.logger.info("✅ FRED API configurada. Calendário econômico ativo.")
         else:
@@ -2115,6 +2300,7 @@ class AIEnhancedTradingBot:
                 if symbol not in self.analyzer.data_cache:
                     self.analyzer.data_cache[symbol] = {}
                 
+                # Timeframes a serem atualizados (5m, 15m, 1h)
                 for timeframe in ['5m', '15m', '1h']:
                     cache_key = f"{symbol}_{timeframe}"
                     now = datetime.now()
@@ -2378,7 +2564,8 @@ class AIEnhancedTradingBot:
             self.logger.info(f"  🧠 IA Prob: {signal.ai_probability:.3f} | Conf Final: {signal.final_confidence:.3f}")
             self.logger.info(f"  📊 Pattern: {signal.pattern_score:.3f} | Sentiment: {signal.sentiment_score:.3f}")
             self.logger.info(f"  🎲 Base: {signal.base_confidence:.3f} | R/R: {signal.risk_reward:.2f}")
-            
+            self.logger.info(f"  🆕 TALIB Score: {signal.features.talib_entrada_score:.1f}")
+
             return True
             
         return False
@@ -2497,25 +2684,30 @@ class AIEnhancedTradingBot:
                     if position['symbol'] in self.analyzer.data_cache and '5m' in self.analyzer.data_cache[position['symbol']]:
                         df_current = self.analyzer.data_cache[position['symbol']]['5m']
                         pattern_score_from_pos = position.get('pattern_score', 0.5)
-                        features_for_feedback = self.analyzer.ml_predictor.extract_features(df_current, pattern_score=pattern_score_from_pos)
+                        # Passa o símbolo para extract_features para que ele possa acessar outros timeframes
+                        features_for_feedback = self.analyzer.ml_predictor.extract_features(df_current, pattern_score=pattern_score_from_pos, symbol=position['symbol'])
 
-                    signal_for_feedback = EnhancedTradingSignal(
-                        symbol=original_signal_dict['symbol'],
-                        action=original_signal_dict['action'],
-                        base_confidence=original_signal_dict['base_confidence'],
-                        ai_probability=original_signal_dict['ai_probability'],
-                        ai_confidence=original_signal_dict['ai_confidence'],
-                        final_confidence=original_signal_dict['final_confidence'],
-                        pattern_score=original_signal_dict['pattern_score'],
-                        sentiment_score=original_signal_dict['sentiment_score'],
-                        features=features_for_feedback or AIFeatures(**{k:0.0 for k in AIFeatures.__annotations__.keys()}), # Provide a dummy if re-extraction fails
-                        entry_price=original_signal_dict['entry_price'],
-                        stop_loss=original_signal_dict['stop_loss'],
-                        take_profit=original_signal_dict['take_profit'],
-                        risk_reward=original_signal_dict['risk_reward'],
-                        timestamp=datetime.fromisoformat(original_signal_dict['timestamp'])
-                    )
-                    self.analyzer.update_training_data(signal_for_feedback, outcome)
+                    # Garante que features_for_feedback não é None antes de criar EnhancedTradingSignal
+                    if features_for_feedback:
+                        signal_for_feedback = EnhancedTradingSignal(
+                            symbol=original_signal_dict['symbol'],
+                            action=original_signal_dict['action'],
+                            base_confidence=original_signal_dict['base_confidence'],
+                            ai_probability=original_signal_dict['ai_probability'],
+                            ai_confidence=original_signal_dict['ai_confidence'],
+                            final_confidence=original_signal_dict['final_confidence'],
+                            pattern_score=original_signal_dict['pattern_score'],
+                            sentiment_score=original_signal_dict['sentiment_score'],
+                            features=features_for_feedback,
+                            entry_price=original_signal_dict['entry_price'],
+                            stop_loss=original_signal_dict['stop_loss'],
+                            take_profit=original_signal_dict['take_profit'],
+                            risk_reward=original_signal_dict['risk_reward'],
+                            timestamp=datetime.fromisoformat(original_signal_dict['timestamp'])
+                        )
+                        self.analyzer.update_training_data(signal_for_feedback, outcome)
+                    else:
+                        self.logger.warning(f"Não foi possível re-extrair features para feedback de IA para {position['symbol']}.")
                 else:
                     self.logger.warning("No signal data found in position for AI feedback.")
                 
@@ -2539,7 +2731,8 @@ class AIEnhancedTradingBot:
                     self.logger.info(f"  🧠 IA Prob: {signal.ai_probability:.3f} | Conf Final: {signal.final_confidence:.3f}")
                     self.logger.info(f"  📊 Pattern: {signal.pattern_score:.3f} | Sentiment: {signal.sentiment_score:.3f}")
                     self.logger.info(f"  🎲 Base: {signal.base_confidence:.3f} | R/R: {signal.risk_reward:.2f}")
-                    
+                    self_logger.info(f"  🆕 TALIB Score: {signal.features.talib_entrada_score:.1f}")
+
                     success = self.execute_enhanced_signal(signal)
                     if success:
                         self.logger.info(f"✅ Sinal IA executado com sucesso para {signal.symbol}")
@@ -2560,6 +2753,7 @@ class AIEnhancedTradingBot:
         self.logger.info(f"📊 XGBoost: {'SIM' if XGB_AVAILABLE else 'NÃO'}")
         self.logger.info(f"💭 Sentiment: {'SIM' if SENTIMENT_AVAILABLE else 'NÃO'}")
         self.logger.info(f"📈 YFinance: {'SIM' if YFINANCE_AVAILABLE else 'NÃO'}")
+        self.logger.info(f"📚 TALIB: {'SIM' if TALIB_AVAILABLE else 'NÃO'}") # Log TALIB status
         if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
             self.logger.info("📅 Calendário FRED: ATIVO")
         else:
@@ -2732,38 +2926,45 @@ class Backtester:
         for symbol in symbols:
             yf_symbol = _convert_gateio_symbol_to_yfinance(symbol)
             
-            yf_interval = {'5m': '5m', '15m': '15m', '1h': '60m'}.get(interval, '5m')
+            yf_interval = {'1m': '1m', '5m': '5m', '15m': '15m', '1h': '60m'}.get(interval, '5m') # Updated for 1m
             
             # Request period slightly larger to ensure enough data for indicators
             # YFinance's 5m interval is typically limited to 7 days
-            if yf_interval == '5m':
-                if (end_date - start_date).days > 7:
-                    self.logger.warning(f"Período de backtest para {symbol} ({start_date.date()} a {end_date.date()}) é maior que 7 dias para intervalo de 5m. O YFinance pode não fornecer dados completos. Considere usar intervalos maiores ou dados locais.")
-                period_str = "7d" 
-            elif yf_interval == '15m':
-                period_str = "60d" 
-            elif yf_interval == '60m':
-                period_str = "2y" 
-            else:
-                period_str = "1mo" 
+            period_str_map = {
+                '1m': '7d',
+                '5m': '7d',
+                '15m': '60d',
+                '60m': '2y'
+            }
+            period_str = period_str_map.get(yf_interval, '1mo')
+
 
             try:
+                # Ajusta a data de início para buscar dados suficientes para os indicadores
+                # Por exemplo, se a maior janela de indicador é 50 e você quer testar 1m,
+                # precisa de pelo menos 50 minutos de dados antes do start_date real do backtest.
+                # Um buffer de 7 dias é seguro para a maioria dos timeframes.
+                buffer_days = 7 # Suficiente para os timeframes menores e cálculos
+                data_fetch_start = start_date - timedelta(days=buffer_days)
+
                 ticker = yf.Ticker(yf_symbol)
-                df = ticker.history(start=start_date - timedelta(days=30), end=end_date + timedelta(days=1), interval=yf_interval, auto_adjust=True) # auto_adjust=True
+                # Fetch data up to the end of the backtest period plus a small buffer
+                df = ticker.history(start=data_fetch_start, end=end_date + timedelta(days=1), interval=yf_interval, auto_adjust=True) # auto_adjust=True
                 
                 if df.empty:
-                    self.logger.warning(f"Não foi possível carregar dados para {yf_symbol} de {start_date} a {end_date}. Pulando.")
+                    self.logger.warning(f"Não foi possível carregar dados para {yf_symbol} de {data_fetch_start} a {end_date}. Pulando.")
                     continue
                 
-                df.columns = [col.lower() for col in df.columns]
-                df.rename(columns={'close': 'close', 'open': 'open', 'high': 'high', 'low': 'low', 'volume': 'volume'}, inplace=True)
+                df.columns = [col.title() for col in df.columns] # Ensure consistent column names (Open, High, Low, Close, Volume)
                 df.index.name = 'timestamp'
-                df = df[['open', 'high', 'low', 'close', 'volume']]
+                df = df[['Open', 'High', 'Low', 'Close', 'Volume']] # Select and order columns
                 
                 # Resample to ensure consistent intervals (YFinance might have gaps)
-                resampled_5m = df.resample('5min').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-                resampled_15m = df.resample('15min').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
-                resampled_1h = df.resample('1h').agg({'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last', 'volume': 'sum'}).dropna()
+                # This ensures we have a consistent index for the loop.
+                # Use df.asfreq() after resample to fill missing intervals with NaN
+                resampled_5m = df.resample('5min').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+                resampled_15m = df.resample('15min').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+                resampled_1h = df.resample('1h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
 
                 self.historical_data_frames[symbol] = {
                     '5m': resampled_5m,
@@ -2784,7 +2985,7 @@ class Backtester:
             df = self.bot.analyzer.data_cache[symbol]['5m']
             recent_candles = df[df.index <= self.current_simulation_time]
             if not recent_candles.empty:
-                return recent_candles['close'].iloc[-1]
+                return recent_candles['Close'].iloc[-1] # Use 'Close' column
         return 0.0
 
     def _simulate_order_execution(self, symbol: str, side: str, contracts: float) -> Optional[dict]:
@@ -2804,10 +3005,20 @@ class Backtester:
         self.logger.info(f"Backtest: Simulating {side.upper()} order for {contracts} {symbol} @ ${price:.4f} at {self.current_simulation_time}")
         
         cost_usdt = contracts * price
+        # Adjust simulated balance
+        # For 'buy', capital is reduced (buying asset)
+        # For 'sell', capital is increased (selling asset, potentially opening short)
+        # For closing positions, the PnL is applied later in close_position_with_ai_feedback,
+        # so here we only simulate the initial capital allocation for opening a position.
+        
+        # When opening a short position, it's typically margin-based, not directly adding to balance.
+        # For simplicity in this backtest, we'll only adjust for opening buy positions,
+        # and PnL for both long/short will adjust balance upon closing.
         if side == "buy":
-            self.simulated_balance -= cost_usdt 
-        else: 
-            self.simulated_balance += cost_usdt
+            self.simulated_balance -= cost_usdt # Simulate capital tied up (or used for buying)
+        
+        # Note: A real backtester would need more sophisticated margin and PnL tracking for futures.
+        # This current simplified approach directly manages balance for entry/exit.
         
         return simulated_order
 
@@ -2845,18 +3056,18 @@ class Backtester:
         self.bot.analyzer.ml_predictor.load_model() # Attempt to load pre-trained model for backtest if available
 
         # Load all necessary historical data at once
-        self._load_initial_historical_data(start_date, end_date, TRADING_SYMBOLS, '5m')
-        
+        self._load_initial_historical_data(start_date, end_date, TRADING_SYMBOLS, '5m') # Using 5m as base interval
+
         # Determine the earliest start time considering the feature window for indicators
-        earliest_candle_needed = start_date - timedelta(days=max(AI_CONFIG['feature_window'] * 5 // (24*60), 5)) 
-        
+        # The earliest timestamp in our loaded data should cover the feature window before start_date
         all_timestamps = []
         for symbol in TRADING_SYMBOLS:
             if symbol in self.historical_data_frames and '5m' in self.historical_data_frames[symbol]:
                 df_symbol = self.historical_data_frames[symbol]['5m']
-                filtered_timestamps = df_symbol.index[(df_symbol.index >= earliest_candle_needed) & (df_symbol.index <= end_date)].tolist()
+                # Filter timestamps to be within the actual backtest period
+                filtered_timestamps = df_symbol.index[(df_symbol.index >= start_date) & (df_symbol.index <= end_date)].tolist()
                 all_timestamps.extend(filtered_timestamps)
-        all_timestamps = sorted(list(set(all_timestamps)))
+        all_timestamps = sorted(list(set(all_timestamps))) # Get unique sorted timestamps across all symbols
 
         if not all_timestamps:
             self.logger.error("Data histórica insuficiente ou período inválido para o backtest. Verifique datas e disponibilidade de dados.")
@@ -2874,7 +3085,8 @@ class Backtester:
             for symbol in TRADING_SYMBOLS:
                 if symbol in self.historical_data_frames:
                     for tf, df_data in self.historical_data_frames[symbol].items():
-                        recent_df = df_data[df_data.index <= self.current_simulation_time].tail(max(AI_CONFIG['feature_window'], 50))
+                        # Get data up to the current simulation timestamp
+                        recent_df = df_data[df_data.index <= self.current_simulation_time].tail(max(AI_CONFIG['feature_window'] + 50, 200)) # Ensure enough for indicators + talib
                         if not recent_df.empty:
                             if symbol not in self.bot.analyzer.data_cache:
                                 self.bot.analyzer.data_cache[symbol] = {}
@@ -3062,13 +3274,14 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                     "ml_available": ML_AVAILABLE,
                     "xgb_available": XGB_AVAILABLE,
                     "sentiment_available": SENTIMENT_AVAILABLE,
+                    "talib_available": TALIB_AVAILABLE, # Add TALIB status
                     "model_trained": self.analyzer.ml_predictor.model is not None,
                     "last_retrain": self.analyzer.ml_predictor.last_retrain.isoformat() if self.analyzer.ml_predictor.last_retrain else None,
                     "pattern_database_size": len(self.analyzer.pattern_matcher.patterns),
                     "sentiment_cache_size": len(self.analyzer.sentiment_analyzer.sentiment_cache),
                     "fred_calendar_active": (FRED_API_KEY is not None and FRED_API_KEY != "DUMMY_KEY_FRED"),
                     "fred_events_cached": len(self.analyzer.fred_events_cache),
-                    "fred_last_update": self.analyzer.last_fred_update.isoformat() if self.analyzer.last_fred_update else None,
+                    "fred_last_update": self.analyzer.last_fred_update.isoformat() if self.analyzer.last_update else None, # Corrected key
                     "cryptopanic_active": (CRYPTOPANIC_API_KEY is not None and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC")
                 },
                 
@@ -3083,7 +3296,8 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                     "multi_model_ensemble": True,
                     "kelly_criterion_sizing": True,
                     "fred_economic_calendar_integration": True,
-                    "cryptopanic_news_integration": True # New feature
+                    "cryptopanic_news_integration": True,
+                    "talib_advanced_analysis": TALIB_AVAILABLE # New feature
                 }
             }
             
@@ -3116,6 +3330,7 @@ if __name__ == "__main__":
     print("🤖 BOT DE TRADING COM IA LEVE v2.1")
     print("🧠 Machine Learning + Análise de Sentimento + Padrões Históricos")
     print("✨ Melhorias: Mais Indicadores, Gerenciamento de Risco Kelly, Backtesting (Esqueleto)")
+    print("🆕 Novidade: Análise TALIB Avançada Multi-Timeframe")
     print("=" * 80)
     
     parser = argparse.ArgumentParser(description='Bot de Trading com IA v2.1')
@@ -3155,11 +3370,15 @@ if __name__ == "__main__":
         missing_deps.append("textblob")
     if not YFINANCE_AVAILABLE:
         missing_deps.append("yfinance")
+    if not TALIB_AVAILABLE:
+        missing_deps.append("talib (TA-Lib C library first)")
     
     if missing_deps:
         print(f"⚠️ ATENÇÃO: Dependências opcionais não disponíveis: {', '.join(missing_deps)}")
         print("📦 Para funcionalidade completa, instale:")
-        print(f"    pip install {' '.join(missing_deps)}")
+        print(f"    pip install {' '.join([d for d in missing_deps if not 'TA-Lib' in d])}")
+        if 'talib (TA-Lib C library first)' in missing_deps:
+            print("    Para TA-Lib, siga as instruções de instalação da biblioteca C primeiro, depois pip install talib-python.")
         
         if not ML_AVAILABLE:
             print("❌ ERRO: Machine Learning é obrigatório para esta versão!")
@@ -3249,6 +3468,16 @@ if __name__ == "__main__":
             print("🧠 Modo treinamento apenas...")
             bot = CombinedAITradingBot(environment=args.env)
 
+            # Ensure ML predictor has analyzer reference before attempting to train
+            bot.analyzer.ml_predictor.analyzer = bot.analyzer
+            
+            # Forçar uma atualização do cache para ter dados para feature extraction,
+            # especialmente se o treinamento estiver sendo feito a partir de um estado limpo.
+            # Em um cenário de 'train-only', o ideal seria carregar dados históricos para o treinamento.
+            # Aqui, apenas garantimos que o cache esteja preenchido minimamente.
+            bot.update_data_cache()
+
+
             if len(bot.analyzer.ml_predictor.training_data) < AI_CONFIG['min_training_samples']:
                 print(f"❌ Dados insuficientes para treinar: {len(bot.analyzer.ml_predictor.training_data)}")
                 print(f"📊 Necessário pelo menos: {AI_CONFIG['min_training_samples']} amostras")
@@ -3270,6 +3499,9 @@ if __name__ == "__main__":
         elif args.force_retrain:
             print("🔄 Forçando retreinamento do modelo...")
             bot = CombinedAITradingBot(environment=args.env)
+            # Ensure ML predictor has analyzer reference before attempting to train
+            bot.analyzer.ml_predictor.analyzer = bot.analyzer
+            bot.update_data_cache() # Ensure data is available for feature extraction during retraining
             success = bot.force_model_retrain()
             if success:
                 print("✅ Retreinamento concluído!")
@@ -3282,6 +3514,7 @@ if __name__ == "__main__":
             print(f"\n🚀 Iniciando bot de trading com IA...")
             print(f"🌍 Ambiente: {args.env.upper()}")
             print(f"🧠 IA ativada: {'SIM' if ML_AVAILABLE else 'NÃO'}")
+            print(f"📚 TALIB ativado: {'SIM' if TALIB_AVAILABLE else 'NÃO'}")
             print(f"⚙️ Configurações:")
             print(f"    • Posições máx: {RISK_CONFIG[args.env]['max_open_positions']}")
             print(f"    • Trades/dia máx: {RISK_CONFIG[args.env]['max_daily_trades']}")
