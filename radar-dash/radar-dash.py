@@ -1528,11 +1528,10 @@ def calculate_trend_angle_indicator(values: List[float], time_window: int = 5) -
 
 def update_realtime_macd(asset: str, new_candle: Dict):
     """
-    Atualiza MACD, RSI e suas inclinações em tempo real com novo candle
+    Atualiza MACD, RSI, STOCHRSI e suas inclinações em tempo real com novo candle
     """
     try:
         # Garante que o asset existe no cache, inicializando se necessário
-        # A estrutura de inicialização já foi atualizada no Passo 2
         if asset not in realtime_ohlcv_cache:
             logger.warning(f"Ativo {asset} não encontrado no cache OHLCV. Inicializando com defaults.")
             realtime_ohlcv_cache[asset] = {
@@ -1541,6 +1540,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                 "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []},
                 "rsi_data": {"rsi": [], "last_value": 0.0, "angle": 0.0, "strength": 0.0, "trend": "NEUTRAL"},
                 "macd_angle_data": {"macd_angle": 0.0, "macd_angle_strength": 0.0, "signal_angle": 0.0, "signal_angle_strength": 0.0},
+                "stochrsi_data": {"k_value": 0.0, "d_value": 0.0, "k_series": [], "d_series": []}, # NOVO
                 "last_update": None,
                 "websocket_connected": False
             }
@@ -1551,7 +1551,10 @@ def update_realtime_macd(asset: str, new_candle: Dict):
         realtime_ohlcv_cache[asset]["last_update"] = datetime.now().isoformat()
 
         candles = list(realtime_ohlcv_cache[asset]["candles"])
-        close_prices = np.array([float(c["close"]) for c in candles])
+        # Garante que os preços são numéricos e remove NaNs
+        close_prices_raw = np.array([float(c["close"]) for c in candles])
+        # Apenas use dados não-NaN para talib.
+        close_prices = close_prices_raw[~np.isnan(close_prices_raw)].astype(np.float64)
         
         # --- Cálculo do MACD ---
         macd_clean = []
@@ -1560,7 +1563,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
         
         if len(close_prices) >= 34: # MACD requires at least 34 periods
             macd, macd_signal, macd_hist = talib.MACD(
-                close_prices.astype(np.float64),
+                close_prices,
                 fastperiod=12,
                 slowperiod=26,  
                 signalperiod=9
@@ -1610,7 +1613,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
         # --- Cálculo do RSI ---
         rsi_clean = []
         if len(close_prices) >= 14: # RSI requires at least 14 periods
-            rsi_values = talib.RSI(close_prices.astype(np.float64), timeperiod=14)
+            rsi_values = talib.RSI(close_prices, timeperiod=14)
             rsi_clean = np.nan_to_num(rsi_values).tolist()
             last_rsi_value = rsi_clean[-1] if rsi_clean else 0.0
 
@@ -1623,7 +1626,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                 rsi_trend = "FALLING"
 
             realtime_ohlcv_cache[asset]["rsi_data"].update({
-                "rsi": rsi_clean, # Armazena a série completa de RSI (pode ser útil para depuração)
+                "rsi": rsi_clean,
                 "last_value": round(last_rsi_value, 2),
                 "angle": rsi_angle_info["angle"],
                 "strength": rsi_angle_info["strength"],
@@ -1634,7 +1637,34 @@ def update_realtime_macd(asset: str, new_candle: Dict):
             logger.debug(f"Insufficient candles for RSI for {asset} ({len(close_prices)}/14)")
             realtime_ohlcv_cache[asset]["rsi_data"] = {"rsi": [], "last_value": 0.0, "angle": 0, "strength": 0, "trend": "NEUTRAL"}
             
-        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(macd_clean or [])} pts), RSI ({len(rsi_clean or [])} pts)")
+        # --- Cálculo do STOCHRSI (NOVO) ---
+        stochrsi_k_clean = []
+        stochrsi_d_clean = []
+        # STOCHRSI (14,3,3) precisa de 14 para RSI, 3 para %K. Total 14 + (3-1) = 16 para o primeiro %K real.
+        # Talib calcula internamente. Uma regra segura é len >= 14 + fastk_period + signal_period (se houver) ou 34 para valores MACD
+        if len(close_prices) >= 17: # STOCHRSI (14,3,3) precisa de no mínimo 17 candles
+            fastk, fastd = talib.STOCHRSI(
+                close_prices,
+                timeperiod=14,
+                fastk_period=3,
+                fastd_period=3,
+                fastd_matype=0 # SMA
+            )
+            stochrsi_k_clean = np.nan_to_num(fastk).tolist()
+            stochrsi_d_clean = np.nan_to_num(fastd).tolist()
+
+            realtime_ohlcv_cache[asset]["stochrsi_data"].update({
+                "k_value": round(stochrsi_k_clean[-1], 2) if stochrsi_k_clean else 0.0,
+                "d_value": round(stochrsi_d_clean[-1], 2) if stochrsi_d_clean else 0.0,
+                "k_series": stochrsi_k_clean,
+                "d_series": stochrsi_d_clean,
+                "last_update": datetime.now().isoformat()
+            })
+        else:
+            logger.debug(f"Insufficient candles for STOCHRSI for {asset} ({len(close_prices)}/17)")
+            realtime_ohlcv_cache[asset]["stochrsi_data"] = {"k_value": 0, "d_value": 0, "k_series": [], "d_series": []}
+
+        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(macd_clean or [])} pts), RSI ({len(rsi_clean or [])} pts), STOCHRSI K/D ({len(stochrsi_k_clean or [])} pts)")
         
     except Exception as e:
         logger.error(f"Error updating realtime indicators for {asset}: {e}", exc_info=True)
@@ -1862,11 +1892,25 @@ async def websocket_endpoint_ohlcv(websocket: WebSocket):
 
 @app.get("/api/macd/realtime/{asset}")
 def get_realtime_macd(asset: str):
-    """Endpoint para MACD em tempo real"""
+    """Endpoint para MACD em tempo real, com fallback graceful se dados não estiverem prontos."""
     try:
         asset_lower = asset.lower()
+        
+        # Se o ativo não está no cache ou não tem candles, retorne um estado de 'warming up'
         if asset_lower not in realtime_ohlcv_cache or not realtime_ohlcv_cache[asset_lower]["candles"]:
-            raise HTTPException(status_code=404, detail=f"Asset {asset} not found or no real-time candles available.")
+            logger.warning(f"⚠️ Realtime MACD for {asset}: Cache is empty or warming up. Returning default values.")
+            return {
+                "asset": asset.upper(),
+                "macd_data": {"macd": [], "signal": [], "histogram": []}, # Estrutura vazia
+                "current_candle": {},
+                "websocket_connected": realtime_ohlcv_cache.get(asset_lower, {}).get("websocket_connected", False),
+                "last_update": None,
+                "candles_count": 0,
+                "recent_crossovers": [],
+                "timestamp": datetime.now().isoformat(),
+                "status": "warming_up",
+                "message": f"Real-time data for {asset} not yet available. Please wait."
+            }
         
         asset_data = realtime_ohlcv_cache[asset_lower]
         
@@ -1884,16 +1928,21 @@ def get_realtime_macd(asset: str):
         return {
             "asset": asset.upper(),
             "macd_data": asset_data["macd_data"],
+            "rsi_data": asset_data["rsi_data"], # Inclua RSI data também
+            "macd_angle_data": asset_data["macd_angle_data"], # Inclua MACD angle data
+            "stochrsi_data": asset_data.get("stochrsi_data", {"k_value": 0, "d_value": 0}), # Inclua StochRSI data
             "current_candle": current_candle_formatted,
             "websocket_connected": asset_data["websocket_connected"],
             "last_update": asset_data["last_update"],
             "candles_count": len(asset_data["candles"]),
             "recent_crossovers": macd_detector.get_recent_crossovers(5),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "status": "active" # Indique que está ativo quando tem dados
         }
         
     except Exception as e:
-        logger.error(f"Error getting realtime MACD for {asset}: {e}", exc_info=True)
+        logger.error(f"❌ Error getting realtime MACD for {asset}: {e}", exc_info=True)
+        # Em caso de qualquer outra exceção, ainda é melhor retornar um erro HTTP
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/crossovers/recent")
@@ -2405,7 +2454,7 @@ def test_data_fetch():
 
 @app.get("/api/precos/{period}")
 async def get_financial_data_by_period(period: str):
-    """Endpoint para dados históricos, incluindo MACD e Volume colorido - CORRIGIDO"""
+    """Endpoint para dados históricos, incluindo MACD, RSI, STOCHRSI e Volume colorido - CORRIGIDO"""
     logger.info(f"📊 Fetching financial data for period: {period}")
     
     yfinance_period_map = {
@@ -2413,20 +2462,20 @@ async def get_financial_data_by_period(period: str):
         '5d': '5d',
         '1mo': '1mo',
         '3mo': '3mo',
-        '6mo': '6mo',
-        '1y': '1y',
-        '2y': '2y',
-        '5y': '5y',
+        '6mo': '1y', # Aumentado para 1y para ter mais dados para TALIB
+        '1y': '2y',  # Aumentado para 2y
+        '2y': '5y',  # Aumentado para 5y
+        '5y': '10y', # Aumentado para 10y
         'max': 'max',
-        '5m': '1d',
-        '15m': '5d',
-        '30m': '5d',
-        '1h': '5d',
-        '4h': '1mo'
+        '5m': '7d', # Aumentado para 7d para 5m interval
+        '15m': '60d', # Aumentado para 60d
+        '30m': '60d',
+        '1h': '730d', # 2 anos
+        '4h': '730d'
     }
     
     yfinance_interval_map = {
-        '1d': '1m',
+        '1d': '1m', # YFinance 1m limitado a 7d
         '5d': '5m',
         '1mo': '1h',
         '3mo': '1d',
@@ -2444,9 +2493,9 @@ async def get_financial_data_by_period(period: str):
     
     gateio_interval_map = {
         '1d': '1m',
-        '5d': '30m',
-        '1mo': '4h',
-        '3mo': '1d',
+        '5d': '5m', # Usar 5m para 5 dias
+        '1mo': '1h', # Usar 1h para 1 mês
+        '3mo': '4h',
         '6mo': '1d',
         '1y': '1d',
         '2y': '1d',
@@ -2461,19 +2510,19 @@ async def get_financial_data_by_period(period: str):
     
     gateio_limit_map = {
         '1d': 1000,
-        '5d': 480,
-        '1mo': 180,
-        '3mo': 200,
-        '6mo': 200,
-        '1y': 200,
-        '2y': 200,
-        '5y': 200,
-        'max': 200,
-        '5m': 300,
-        '15m': 400,
-        '30m': 480,
-        '1h': 720,
-        '4h': 180
+        '5d': 1000, # Aumentado
+        '1mo': 720, # 30 dias * 24h/dia
+        '3mo': 500,
+        '6mo': 400,
+        '1y': 365,
+        '2y': 730,
+        '5y': 1000,
+        'max': 1000,
+        '5m': 1000, # Max para 1m
+        '15m': 1000,
+        '30m': 1000,
+        '1h': 1000,
+        '4h': 1000
     }
 
     try:
@@ -2492,6 +2541,9 @@ async def get_financial_data_by_period(period: str):
             macd_values = []
             macd_signal_values = []
             macd_hist_values = []
+            rsi_values = [] # <<-- Inicializar aqui
+            stochrsi_k_values = [] # <<-- Inicializar aqui
+            stochrsi_d_values = [] # <<-- Inicializar aqui
             opens = []
             highs = []
             lows = []
@@ -2499,9 +2551,28 @@ async def get_financial_data_by_period(period: str):
             try:
                 hist = pd.DataFrame()
                 
+                # Definir start_date para yfinance para garantir dados suficientes
+                # yfinance 'period' argument is relative, 'start' and 'end' are absolute.
+                # If 'period' is used, 'interval' has limits (e.g., '1m' only works for '7d')
+                # Let's try to infer start_date from the selected period
+                end_date_yf = datetime.now()
+                start_date_yf = end_date_yf - timedelta(days=7) # Default for 1m interval as per yfinance limit
+
+                if period == '5d': start_date_yf = end_date_yf - timedelta(days=5)
+                elif period == '1mo': start_date_yf = end_date_yf - timedelta(days=30)
+                elif period == '3mo': start_date_yf = end_date_yf - timedelta(days=90)
+                elif period == '6mo': start_date_yf = end_date_yf - timedelta(days=180)
+                elif period == '1y': start_date_yf = end_date_yf - timedelta(days=365)
+                elif period == '2y': start_date_yf = end_date_yf - timedelta(days=730)
+                elif period == '5y': start_date_yf = end_date_yf - timedelta(days=1825)
+                # For 'max', leave start_date_yf as default yfinance behavior.
+                
+                # Convertir intervalo para o formato do yfinance se necessário
+                yf_interval = yfinance_interval_map.get(period, '1d')
+                
                 if symbol_gateio:
-                    gateio_interval = gateio_interval_map.get(period, '1d')
-                    limit = gateio_limit_map.get(period, 200)
+                    gateio_interval = gateio_interval_map.get(period, '1m')
+                    limit = gateio_limit_map.get(period, 1000) # Max 1000 per request
                     
                     logger.info(f"DEBUG: Fetching {asset_name.upper()} from Gate.io Futures (Contract: {symbol_gateio}, Interval: {gateio_interval}, Limit: {limit})")
                     hist = await fetch_gateio_ohlcv(symbol_gateio, gateio_interval, limit)
@@ -2510,32 +2581,27 @@ async def get_financial_data_by_period(period: str):
                         logger.warning(f"⚠️ No Gate.io data received for {asset_name.upper()}, falling back to yfinance (if available)")
                         if symbol_yf:
                             try:
-                                yf_period = yfinance_period_map.get(period, '1d')
-                                yf_interval = yfinance_interval_map.get(period, '1d')
-                                logger.info(f"DEBUG: Fallback {asset_name.upper()} from yfinance (Symbol: {symbol_yf}, Period: {yf_period}, Interval: {yf_interval})")
-                                hist = yf.download(symbol_yf, period=yf_period, interval=yf_interval, progress=False, threads=False, auto_adjust=True) # auto_adjust=True
+                                logger.info(f"DEBUG: Fallback {asset_name.upper()} from yfinance (Symbol: {symbol_yf}, Period: {yfinance_period_map.get(period, '1d')}, Interval: {yf_interval})")
+                                # Passa start/end date explicitamente se o período for muito longo para o 'period' arg
+                                if period in ['5m', '15m', '30m', '1h', '4h']: # Intervals where period must be small
+                                     hist = yf.download(symbol_yf, period=yfinance_period_map.get(period, '7d'), interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+                                else:
+                                     hist = yf.download(symbol_yf, start=start_date_yf, end=end_date_yf, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
                             except Exception as fallback_error:
                                 logger.error(f"❌ Fallback yfinance also failed for {asset_name.upper()}: {fallback_error}")
                 elif symbol_yf:
-                    yf_period = yfinance_period_map.get(period, '1d')
-                    yf_interval = yfinance_interval_map.get(period, '1d')
-                    
-                    logger.info(f"DEBUG: Fetching {asset_name} from yfinance (Symbol: {symbol_yf}, Period: {yf_period}, Interval: {yf_interval})")
-                    
+                    logger.info(f"DEBUG: Fetching {asset_name} from yfinance (Symbol: {symbol_yf}, Period: {yfinance_period_map.get(period, '1d')}, Interval: {yf_interval})")
                     try:
-                        hist = yf.download(
-                            symbol_yf, 
-                            period=yf_period, 
-                            interval=yf_interval, 
-                            progress=False, 
-                            threads=False,
-                            auto_adjust=True
-                        )
+                        if period in ['5m', '15m', '30m', '1h', '4h']:
+                             hist = yf.download(symbol_yf, period=yfinance_period_map.get(period, '7d'), interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+                        else:
+                             hist = yf.download(symbol_yf, start=start_date_yf, end=end_date_yf, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+
                     except Exception as yf_error:
                         logger.error(f"❌ yfinance error for {symbol_yf}: {yf_error}")
                         try:
                             logger.info(f"DEBUG: Retry {asset_name} with conservative parameters")
-                            hist = yf.download(symbol_yf, period='1mo', interval='1d', progress=False, threads=False, auto_adjust=True) # auto_adjust=True
+                            hist = yf.download(symbol_yf, period='1mo', interval='1d', progress=False, threads=False, auto_adjust=True)
                         except Exception as retry_error:
                             logger.error(f"❌ Conservative retry also failed for {symbol_yf}: {retry_error}")
                     
@@ -2548,89 +2614,113 @@ async def get_financial_data_by_period(period: str):
 
                 required_ohlcv_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
                 if (not hist.empty and 
-                    all(col in hist.columns for col in required_ohlcv_cols) and
-                    all(not hist[col].empty for col in required_ohlcv_cols)):
+                    all(col in hist.columns for col in required_ohlcv_cols)):
                     
+                    # Força conversão para numérico e preenche NaNs antes do talib
                     for col in required_ohlcv_cols:
-                        if isinstance(hist[col], (list, tuple, np.ndarray, pd.Series)):
-                            hist[col] = pd.to_numeric(hist[col], errors='coerce')
-                        else:
-                            logger.warning(f"⚠️ Column '{col}' for {asset_name} is not a compatible type for numeric conversion: {type(hist[col])}. Setting to NaN.")
-                            hist[col] = np.nan
+                        hist[col] = pd.to_numeric(hist[col], errors='coerce')
+                        if col in ['Open', 'High', 'Low', 'Close']:
+                            hist[col] = hist[col].ffill().bfill() # Preenche NaNs com o último valor válido, depois com o primeiro
+                        elif col == 'Volume':
+                            hist[col] = hist[col].fillna(0) # Volume pode ser 0
 
-                    hist['Close'] = hist['Close'].ffill().bfill()
-                    hist['Volume'] = hist['Volume'].fillna(0)
-                    hist['Open'] = hist['Open'].ffill().bfill()
-                    hist['High'] = hist['High'].ffill().bfill()
-                    hist['Low'] = hist['Low'].ffill().bfill()
+                    hist_cleaned = hist.dropna(subset=['Close']) # Garante que não há NaNs em Close
+
+                    if hist_cleaned.empty:
+                        logger.warning(f"DEBUG: {asset_name} - Cleaned history is empty after NaN filling and dropping. Cannot calculate indicators.")
+                        prices, volumes, opens, highs, lows, volume_colors, asset_dates = [],[],[],[],[],[],[]
+                        macd_values, macd_signal_values, macd_hist_values, rsi_values = [],[],[],[]
+                        stochrsi_k_values, stochrsi_d_values = [],[]
+                        continue
+
+                    hist_cleaned = calculate_volume_colors_and_macd(hist_cleaned)
                     
-                    hist_cleaned = hist.dropna(subset=['Close', 'Volume', 'Open', 'High', 'Low'])
-
-                    if not hist_cleaned.empty:
-                        hist_cleaned = calculate_volume_colors_and_macd(hist_cleaned)
-                        
-                        if hasattr(hist_cleaned.index, 'tz_localize'):
-                            hist_cleaned.index = hist_cleaned.index.tz_localize(None)
-                        
-                        # IMPORTANTE: Garantir que os dados estejam no formato correto
-                        prices = hist_cleaned['Close'].tolist()
-                        volumes = hist_cleaned['Volume'].tolist()
-                        opens = hist_cleaned['Open'].tolist()
-                        highs = hist_cleaned['High'].tolist()
-                        lows = hist_cleaned['Low'].tolist()
-                        volume_colors = hist_cleaned.get('price_direction', ['neutral'] * len(prices)).tolist() # Use .get with default
-                                        
-                        # Datas no formato ISO string
-                        asset_dates = hist_cleaned.index.strftime('%Y-%m-%dT%H:%M:%S').tolist()
-                                        
-                        # MACD
-                        macd_values = []
-                        macd_signal_values = []
-                        macd_hist_values = []
-
-                        if len(hist_cleaned) >= 34: 
-                            try:
-                                macd, macdsignal, macdhist = talib.MACD(
-                                    hist_cleaned['Close'].values.astype(np.float64),
-                                    fastperiod=12, 
-                                    slowperiod=26, 
-                                    signalperiod=9
-                                )
-                                
-                                # Converter NaN para 0 e para listas Python
-                                macd_values_raw = np.nan_to_num(macd).tolist()
-                                macd_signal_values_raw = np.nan_to_num(macdsignal).tolist()
-                                macd_hist_values_raw = np.nan_to_num(macdhist).tolist()
-
-                                min_len_data = min(len(prices), len(macd_values_raw), len(macd_signal_values_raw), len(macd_hist_values_raw))
-                                
-                                if min_len_data > 0:
-                                    prices = prices[-min_len_data:]
-                                    volumes = volumes[-min_len_data:]
-                                    opens = opens[-min_len_data:]
-                                    highs = highs[-min_len_data:]
-                                    lows = lows[-min_len_data:]
-                                    volume_colors = volume_colors[-min_len_data:]
-                                    asset_dates = asset_dates[-min_len_data:]
-                                    macd_values = macd_values_raw[-min_len_data:]
-                                    macd_signal_values = macd_signal_values_raw[-min_len_data:]
-                                    macd_hist_values = macd_hist_values_raw[-min_len_data:]
+                    if hasattr(hist_cleaned.index, 'tz_localize'):
+                        hist_cleaned.index = hist_cleaned.index.tz_localize(None)
+                    
+                    prices = hist_cleaned['Close'].tolist()
+                    volumes = hist_cleaned['Volume'].tolist()
+                    opens = hist_cleaned['Open'].tolist()
+                    highs = hist_cleaned['High'].tolist()
+                    lows = hist_cleaned['Low'].tolist()
+                    volume_colors = hist_cleaned.get('price_direction', ['neutral'] * len(prices)).tolist()
                                     
-                                    logger.info(f"DEBUG: {asset_name} - MACD calculated and aligned. Prices length: {len(prices)}, MACD length: {len(macd_values)}")
-                                else:
-                                    logger.warning(f"DEBUG: {asset_name} - MACD calculation resulted in no valid points")
-                                    macd_values, macd_signal_values, macd_hist_values = [], [], []
-                            except Exception as macd_error:
-                                logger.warning(f"MACD calculation failed for {asset_name}: {macd_error}")
-                                macd_values, macd_signal_values, macd_hist_values = [], [], []
-
-                        else:
-                            logger.warning(f"DEBUG: {asset_name} - NOT enough data ({len(hist_cleaned['Close'])} points) for MACD calculation")
-                            macd_values, macd_signal_values, macd_hist_values = [], [], []
+                    asset_dates = hist_cleaned.index.strftime('%Y-%m-%dT%H:%M:%S').tolist()
+                                    
+                    # --- MACD ---
+                    if len(hist_cleaned) >= 34: 
+                        try:
+                            macd, macdsignal, macdhist = talib.MACD(
+                                hist_cleaned['Close'].values.astype(np.float64),
+                                fastperiod=12, 
+                                slowperiod=26, 
+                                signalperiod=9
+                            )
+                            macd_values = np.nan_to_num(macd).tolist()
+                            macd_signal_values = np.nan_to_num(macdsignal).tolist()
+                            macd_hist_values = np.nan_to_num(macdhist).tolist()
+                            logger.info(f"DEBUG: {asset_name} - MACD calculated. Length: {len(macd_values)}")
+                        except Exception as macd_error:
+                            logger.warning(f"MACD calculation failed for {asset_name}: {macd_error}")
                     else:
-                        logger.warning(f"DEBUG: {asset_name} - Cleaned history is empty after dropping NaNs")
+                        logger.warning(f"DEBUG: {asset_name} - NOT enough data ({len(hist_cleaned)}) for MACD calculation.")
+
+                    # --- RSI ---
+                    if len(hist_cleaned) >= 14:
+                        try:
+                            rsi_values_calc = talib.RSI(hist_cleaned['Close'].values.astype(np.float64), timeperiod=14)
+                            rsi_values = np.nan_to_num(rsi_values_calc).tolist()
+                            logger.info(f"DEBUG: {asset_name} - RSI calculated. Length: {len(rsi_values)}")
+                        except Exception as rsi_error_calc:
+                            logger.error(f"❌ Error calculating RSI for {asset_name}: {rsi_error_calc}", exc_info=True)
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - Insufficient data ({len(hist_cleaned)}) for RSI calculation (min 14).")
+
+                    # --- STOCHRSI ---
+                    if len(hist_cleaned) >= 17:
+                        try:
+                            fastk, fastd = talib.STOCHRSI(
+                                hist_cleaned['Close'].values.astype(np.float64),
+                                timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0
+                            )
+                            stochrsi_k_values = np.nan_to_num(fastk).tolist()
+                            stochrsi_d_values = np.nan_to_num(fastd).tolist()
+                            logger.info(f"DEBUG: {asset_name} - STOCHRSI calculated. Length: {len(stochrsi_k_values)}")
+                        except Exception as stochrsi_error_calc:
+                            logger.error(f"❌ Error calculating STOCHRSI for {asset_name}: {stochrsi_error_calc}", exc_info=True)
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - Insufficient data ({len(hist_cleaned)}) for STOCHRSI calculation (min 17).")
+                    
+                    # Alinhar todas as séries ao menor comprimento para evitar erros no frontend
+                    min_len_data_all = min(
+                        len(prices), len(macd_values), len(macd_signal_values), len(macd_hist_values),
+                        len(rsi_values), len(stochrsi_k_values), len(stochrsi_d_values), len(volumes)
+                    )
+                    
+                    if min_len_data_all > 0:
+                        prices = prices[-min_len_data_all:]
+                        volumes = volumes[-min_len_data_all:]
+                        opens = opens[-min_len_data_all:]
+                        highs = highs[-min_len_data_all:]
+                        lows = lows[-min_len_data_all:]
+                        volume_colors = volume_colors[-min_len_data_all:]
+                        asset_dates = asset_dates[-min_len_data_all:]
+                        macd_values = macd_values[-min_len_data_all:]
+                        macd_signal_values = macd_signal_values[-min_len_data_all:]
+                        macd_hist_values = macd_hist_values[-min_len_data_all:]
+                        rsi_values = rsi_values[-min_len_data_all:]
+                        stochrsi_k_values = stochrsi_k_values[-min_len_data_all:]
+                        stochrsi_d_values = stochrsi_d_values[-min_len_data_all:]
+                        logger.info(f"DEBUG: {asset_name} - All data aligned to {min_len_data_all} points.")
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - No valid aligned data points after indicator calculation.")
+                        # Resetar tudo para vazio se não houver dados alinhados
+                        prices, volumes, opens, highs, lows, volume_colors, asset_dates = [],[],[],[],[],[],[]
+                        macd_values, macd_signal_values, macd_hist_values, rsi_values = [],[],[],[]
+                        stochrsi_k_values, stochrsi_d_values = [],[]
+
                 else:
-                    logger.warning(f"DEBUG: {asset_name} - No required OHLCV columns found, or history is empty")
+                    logger.warning(f"DEBUG: {asset_name} - No required OHLCV columns found, or history is empty after cleaning.")
 
                 avg_volume = sum(volumes) / len(volumes) if volumes else 0
 
@@ -2638,69 +2728,56 @@ async def get_financial_data_by_period(period: str):
                 data[asset_name] = {
                     'name': asset_name.capitalize(),
                     'symbol': symbol_yf if symbol_yf else symbol_gateio,
-                    'price_data': prices,          # Lista de preços
-                    'volume_data': volumes,        # Lista de volumes
-                    'volume_colors': volume_colors, # Lista de cores
-                    'open_data': opens,            # Lista de aberturas
-                    'high_data': highs,            # Lista de máximas
-                    'low_data': lows,              # Lista de mínimas
+                    'price_data': prices,
+                    'volume_data': volumes,
+                    'volume_colors': volume_colors,
+                    'open_data': opens,
+                    'high_data': highs,
+                    'low_data': lows,
                     'volume_avg_formatted': format_volume(int(avg_volume)),
-                    'dates': asset_dates,          # Datas formatadas
-                    'macd_data': macd_values,      # MACD
-                    'macd_signal_data': macd_signal_values, # Sinal MACD
-                    'macd_hist_data': macd_hist_values      # Histograma MACD
+                    'dates': asset_dates,
+                    'macd_data': macd_values,
+                    'macd_signal_data': macd_signal_values,
+                    'macd_hist_data': macd_hist_values,
+                    'rsi_data': rsi_values, # <<-- Inclua explicitamente aqui
+                    'stochrsi_k_data': stochrsi_k_values, # <<-- Inclua explicitamente aqui
+                    'stochrsi_d_data': stochrsi_d_values  # <<-- Inclua explicitamente aqui
                 }
-                logger.info(f"✅ {asset_name}: {len(prices)} points processed")
+                logger.info(f"✅ {asset_name}: {len(prices)} points processed for /api/precos/{period}")
 
             except Exception as e:
-                logger.error(f"❌ Error processing {asset_name} data: {e}", exc_info=True)
+                logger.error(f"❌ Error processing {asset_name} data in /api/precos/{period}: {e}", exc_info=True)
                 # Fallback com estrutura correta
                 data[asset_name] = {
                     'name': asset_name.capitalize(),
                     'symbol': symbol_yf if symbol_yf else symbol_gateio,
-                    'price_data': [],
-                    'volume_data': [],
-                    'volume_colors': [],
-                    'open_data': [],
-                    'high_data': [],
-                    'low_data': [],
-                    'volume_avg_formatted': '0',
-                    'dates': [],
-                    'macd_data': [],
-                    'macd_signal_data': [],
-                    'macd_hist_data': []
+                    'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [],
+                    'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'dates': [],
+                    'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [],
+                    'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': [] # Garantir que estão presentes
                 }
 
-        # Encontrar datas comuns (usar a maior lista de datas disponível)
-        all_asset_dates_lists = [asset_data['dates'] for asset_data in data.values() if asset_data['dates']]
-        if all_asset_dates_lists:
-            common_dates = max(all_asset_dates_lists, key=len)
-        else:
-            common_dates = []
-
-        # RESPOSTA NO FORMATO ESPERADO PELO FRONTEND
         response = {
             "period": period,
             "data_points": len(common_dates),
-            "dates": common_dates,  # ← IMPORTANTE: Array de datas
-            "assets": data,         # ← IMPORTANTE: Objeto com dados dos ativos
+            "dates": common_dates,
+            "assets": data,
             "timestamp": datetime.now().isoformat(),
             "status": "success"
         }
-        logger.info(f"✅ Response prepared: {len(common_dates)} data points for {len(data)} assets")
+        logger.info(f"✅ Response prepared for /api/precos/{period}: {len(common_dates)} data points for {len(data)} assets")
         return response
     except Exception as e:
         logger.error(f"❌ Critical error fetching financial data for {period}: {e}", exc_info=True)
-        # Resposta de erro com estrutura correta
         return {
             "error": f"Failed to fetch financial data for {period}: {str(e)}",
             "period": period,
             "data_points": 0,
             "dates": [],
             "assets": {
-                'gold': {'name': 'Gold', 'symbol': 'GC=F', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []},
-                'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []},
-                'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []}
+                'gold': {'name': 'Gold', 'symbol': 'GC=F', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []}
             },
             "timestamp": datetime.now().isoformat(),
             "status": "error"
@@ -4447,75 +4524,64 @@ async def get_rsi_macd_websocket_data():
     try:
         current_time = datetime.now()
         
-        # Tenta obter dados reais do bot
-        if real_trading_bot and hasattr(real_trading_bot, 'signals_history') and real_trading_bot.signals_history:
-            try:
-                # O ideal seria pegar os últimos valores RSI/MACD calculados pelo bot no ciclo mais recente
-                # Como 'features' não está diretamente no signal, ou é uma cópia, precisamos reavaliar
-                # uma forma de obter os dados mais recentes do RSI/MACD do cache do bot.
-                # Por simplicidade, vou pegar os do cache de OHLCV em tempo real do dashboard.
-
-                btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
-                if btc_ohlcv_cache and btc_ohlcv_cache.get("macd_data", {}).get("macd"):
-                    macd_data = btc_ohlcv_cache["macd_data"]
-                    # Usar os valores reais do MACD calculados
-                    macd_value = macd_data["macd"][-1] if macd_data["macd"] else 0
-                    signal_value = macd_data["signal"][-1] if macd_data["signal"] else 0
-                    histogram = macd_data["histogram"][-1] if macd_data["histogram"] else 0
-
-                    # Tentar calcular RSI do último candle real
-                    candles_list = list(btc_ohlcv_cache["candles"])
-                    if len(candles_list) >= 14:
-                        df_candles = pd.DataFrame(candles_list)
-                        df_candles['close'] = df_candles['close'].astype(float)
-                        rsi_series = talib.RSI(df_candles['close'].values, timeperiod=14)
-                        rsi_value = rsi_series[-1] if not pd.isna(rsi_series[-1]) else 50.0
-                    else:
-                        rsi_value = round(random.uniform(25, 75), 1) # Fallback se não houver candles suficientes
-                    
-                    data_source = "real_ohlcv_macd"
-
-                else: # Fallback se não houver dados reais de OHLCV do WebSocket
-                    logger.warning("No real OHLCV/MACD data from WebSocket for RSI+MACD display. Using simulated data.")
-                    rsi_value = round(random.uniform(25, 75), 1)
-                    macd_value = round(random.uniform(-80, 80), 4)
-                    signal_value = round(random.uniform(-80, 80), 4)
-                    histogram = round(macd_value - signal_value, 4)
-                    data_source = "simulated_fallback"
-
-            except Exception as ex:
-                logger.warning(f"Failed to extract real RSI/MACD data for WebSocket: {ex}. Using simulated data.")
-                rsi_value = round(random.uniform(25, 75), 1)
-                macd_value = round(random.uniform(-80, 80), 4)
-                signal_value = round(random.uniform(-80, 80), 4)
-                histogram = round(macd_value - signal_value, 4)
-                data_source = "simulated_fallback"
-
-        else: # Se o bot não estiver inicializado
-            rsi_value = round(random.uniform(25, 75), 1)
-            macd_value = round(random.uniform(-80, 80), 4)
-            signal_value = round(random.uniform(-80, 80), 4)
-            histogram = round(macd_value - signal_value, 4)
-            data_source = "simulated"
+        # Tenta obter dados reais do cache de indicadores em tempo real
+        btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
         
+        rsi_value = btc_ohlcv_cache.get("rsi_data", {}).get("last_value", 0)
+        
+        macd_data = btc_ohlcv_cache.get("macd_data", {})
+        macd_value = macd_data.get("macd", [])[-1] if macd_data.get("macd") else 0
+        signal_value = macd_data.get("signal", [])[-1] if macd_data.get("signal") else 0
+        histogram = macd_data.get("histogram", [])[-1] if macd_data.get("histogram") else 0
+
+        # Novos dados do STOCHRSI
+        stochrsi_k_val = btc_ohlcv_cache.get("stochrsi_data", {}).get("k_value", 0)
+        stochrsi_d_val = btc_ohlcv_cache.get("stochrsi_data", {}).get("d_value", 0)
+
+        # Angulos (do cache, se existirem)
+        rsi_angle = btc_ohlcv_cache.get("rsi_data", {}).get("angle", 0)
+        macd_angle = btc_ohlcv_cache.get("macd_angle_data", {}).get("macd_angle", 0)
+        signal_angle = btc_ohlcv_cache.get("macd_angle_data", {}).get("signal_angle", 0)
+        
+        # Sinal (determinado no backend, ou fallback aqui)
+        # Assumindo que o sinal geral é o do MACD trend ou determinado pelo bot
+        signal_type = macd_data.get("trend", "HOLD") if macd_data.get("trend") else "HOLD"
+        
+        data_source = "real_time_indicators" # Default para dados reais
+        if not btc_ohlcv_cache.get("websocket_connected"):
+            data_source = "websocket_disconnected" # Se WS não conectado, dados podem estar desatualizados
+
+        # Lógica de sinal para exibição (pode ser aprimorada)
+        # Use thresholds para evitar sinais muito rápidos
+         # Lógica de sinal para exibição (pode ser aprimorada)
+        # Use thresholds para evitar sinais muito rápidos
+        macd_hist_threshold_display = 0.0005
+        rsi_middle_threshold_display = 5 # RSI entre 45-55 é neutro para sinal
+
+        if histogram > macd_hist_threshold_display and rsi_value < 70 and abs(rsi_value - 50) > rsi_middle_threshold_display:
+            signal_type = "BUY"
+        elif histogram < -macd_hist_threshold_display and rsi_value > 30 and abs(rsi_value - 50) > rsi_middle_threshold_display:
+            signal_type = "SELL"
+        else:
+            signal_type = "HOLD"
+          
+          # Considerar STOCHRSI para o sinal combinado
+        if stochrsi_k_val > stochrsi_d_val and stochrsi_k_val < 80 and stochrsi_d_val < 80 and signal_type == "BUY":
+            signal_type = "STRONG_BUY"
+        elif stochrsi_k_val < stochrsi_d_val and stochrsi_k_val > 20 and stochrsi_d_val > 20 and signal_type == "SELL":
+            signal_type = "STRONG_SELL"
+
+
         rsi_zone = "oversold" if rsi_value < 30 else ("overbought" if rsi_value > 70 else "neutral")
-        rsi_trend = "rising" if rsi_value > 50 else ("falling" if rsi_value < 50 else "flat") # Simplificado para demo
+        rsi_trend = btc_ohlcv_cache.get("rsi_data", {}).get("trend", "NEUTRAL") # Puxa do cache, se existir
         rsi_confidence = 85 if rsi_zone in ["oversold", "overbought"] else 45
         macd_strength = min(abs(histogram) * 15, 90)
-        combined_confidence = round((rsi_confidence + macd_strength) / 2, 0)
-        
-        signal_type = "HOLD"
+        combined_confidence = round((rsi_confidence + macd_strength) / 2, 0) # Mantenha como estava
+
         signal_color = "#FFD700"
-        
-        # Lógica de sinal para exibição
-        if histogram > 0 and rsi_value < 70: # MACD bullish cross and not overbought RSI
-            signal_type = "BUY"
-            signal_color = "#00ff00"
-            if rsi_zone == "oversold" and histogram > 5: signal_type = "STRONG_BUY"
-        elif histogram < 0 and rsi_value > 30: # MACD bearish cross and not oversold RSI
-            signal_type = "SELL"
-            signal_color = "#ff0000"
-            if rsi_zone == "overbought" and histogram < -5: signal_type = "STRONG_SELL"
+        if signal_type.includes("BUY"): signal_color = "#00ff00"
+        if signal_type.includes("SELL"): signal_color = "#ff0000"
+
 
         return {
             "type": "rsi_macd_update",
@@ -4528,7 +4594,8 @@ async def get_rsi_macd_websocket_data():
                 "zone": rsi_zone,
                 "trend": rsi_trend,
                 "confidence": rsi_confidence,
-                "color": "#ff4444" if rsi_zone == "overbought" else "#44ff44" if rsi_zone == "oversold" else "#ffaa00"
+                "color": "#ff4444" if rsi_zone == "overbought" else "#44ff44" if rsi_zone == "oversold" else "#ffaa00",
+                "angle": rsi_angle # Incluir o ângulo do RSI aqui
             },
             "macd": {
                 "macd": macd_value,
@@ -4536,6 +4603,14 @@ async def get_rsi_macd_websocket_data():
                 "histogram": histogram,
                 "trend": "bullish" if histogram > 0 else "bearish" if histogram < 0 else "neutral",
                 "strength": round(abs(histogram), 2)
+            },
+            "macd_angle_data": { # Incluir os ângulos do MACD aqui
+                "macd_angle": macd_angle,
+                "signal_angle": signal_angle,
+            },
+            "stochrsi": { # NOVO: Incluir STOCHRSI
+                "k_value": stochrsi_k_val,
+                "d_value": stochrsi_d_val
             },
             "combined": {
                 "confidence": combined_confidence,
@@ -4562,9 +4637,11 @@ async def get_rsi_macd_websocket_data():
             "timestamp": datetime.now().isoformat(),
             "symbol": "BTC_USDT",
             "error": str(e),
-            "rsi": {"value": 50, "zone": "neutral", "trend": "flat"},
+            "rsi": {"value": 0, "zone": "neutral", "trend": "flat", "angle": 0}, # Defaulters para 0
             "macd": {"macd": 0, "signal": 0, "histogram": 0},
-            "combined": {"confidence": 0, "signal_type": "ERROR"}
+            "macd_angle_data": {"macd_angle": 0, "signal_angle": 0}, # Defaulters para 0
+            "stochrsi": {"k_value": 0, "d_value": 0}, # Defaulters para 0
+            "combined": {"confidence": 0, "signal_type": "ERROR", "signal_color": "#FFD700"}
         }
 
 

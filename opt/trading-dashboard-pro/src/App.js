@@ -1,14 +1,11 @@
-// src/App.js
 import React from 'react';
-import './index.css'; // Importa estilos globais
-// Importa o seu componente principal do Dashboard
-import RSIMACDDashboard from './components/charts/RSIMACDDashboard'; 
+import './index.css';
+import BloombergDashboard from './components/charts/BloombergDashboard'; // atualize o caminho se necessário
 
 function App() {
   return (
     <React.StrictMode>
-      {/* Renderiza o componente principal do Dashboard diretamente */}
-      <RSIMACDDashboard /> 
+      <BloombergDashboard />
     </React.StrictMode>
   );
 }

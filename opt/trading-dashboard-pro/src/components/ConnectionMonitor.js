@@ -12,7 +12,7 @@ const ConnectionMonitor = ({
     const checkBackendHealth = async () => {
         setIsChecking(true);
         try {
-            const response = await fetch('http://62.72.1.122:8000/health');
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/health`);
             const health = await response.json();
             setBackendHealth(health);
         } catch (error) {

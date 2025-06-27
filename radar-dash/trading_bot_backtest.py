@@ -1787,7 +1787,7 @@ class AIEnhancedAnalyzer:
         # Cache de dados (OHLCV)
         self.data_cache = {}
         self.last_cache_update = {}
-        
+        self.last_update = None # <--- ADICIONE ESTA LINHA AQUI!
         self.logger.info(f"🧠 AIEnhancedAnalyzer inicializado para {environment}")
     
     def _update_fred_events_cache(self):
@@ -3185,11 +3185,14 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
             self.logger.error(f"Erro na thread de trading: {e}", exc_info=True)
     
     def get_detailed_ai_status(self) -> Dict:
-        """Status detalhado com métricas de IA"""
+        """Status detalhado com métricas de IA, incluindo performance por ambiente."""
         try:
+            # ATUALIZAÇÃO IMPORTANTE: Chame get_account_balance() para atualizar self.performance["current_balance"]
+            # E também para garantir que start_balance seja definido na primeira chamada.
             current_balance = self.get_account_balance() 
             
-            # Recalculate metrics
+            # Recalculate metrics based on current performance state
+            # (These are updated when trades are closed in close_position_with_ai_feedback)
             if self.performance["start_balance"] > 0:
                 self.performance["roi_percentage"] = (self.performance["total_pnl"] / self.performance["start_balance"]) * 100
             
@@ -3198,8 +3201,58 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
             
             if self.performance["ai_predictions"] > 0:
                 self.performance["ai_accuracy"] = (self.performance["ai_correct_predictions"] / self.performance["ai_predictions"]) * 100
+
+            # Garanta que o performance.last_update seja atualizado
+            self.performance["last_update"] = datetime.now().isoformat()
+
+            # Popula as métricas de performance para o ambiente ATIVO.
+            # Os outros ambientes terão valores padrão de 0/N/A.
+            testnet_perf_data = {
+                "balance": 0.0,
+                "total_pnl": 0.0,
+                "roi_percentage": 0.0,
+                "win_rate": 0.0,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "daily_pnl": 0.0,
+                "daily_trades": 0
+            }
+            live_perf_data = {
+                "balance": 0.0,
+                "total_pnl": 0.0,
+                "roi_percentage": 0.0,
+                "win_rate": 0.0,
+                "total_trades": 0,
+                "winning_trades": 0,
+                "daily_pnl": 0.0,
+                "daily_trades": 0
+            }
             
-            # Format active positions
+            # Atribui os dados globais de performance ao ambiente correto
+            if self.environment == "testnet":
+                testnet_perf_data = {
+                    "balance": round(current_balance, 2),
+                    "total_pnl": round(self.performance["total_pnl"], 2),
+                    "roi_percentage": round(self.performance["roi_percentage"], 2),
+                    "win_rate": round(self.performance["win_rate"], 2),
+                    "total_trades": self.performance["total_trades"],
+                    "winning_trades": self.performance["winning_trades"],
+                    "daily_pnl": round(self.performance["daily_pnl"], 2),
+                    "daily_trades": self.performance["daily_trades"]
+                }
+            elif self.environment == "live":
+                live_perf_data = {
+                    "balance": round(current_balance, 2),
+                    "total_pnl": round(self.performance["total_pnl"], 2),
+                    "roi_percentage": round(self.performance["roi_percentage"], 2),
+                    "win_rate": round(self.performance["win_rate"], 2),
+                    "total_trades": self.performance["total_trades"],
+                    "winning_trades": self.performance["winning_trades"],
+                    "daily_pnl": round(self.performance["daily_pnl"], 2),
+                    "daily_trades": self.performance["daily_trades"]
+                }
+
+
             simple_active_positions = []
             for pos in self.active_positions:
                 try:
@@ -3223,10 +3276,10 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
             
             return {
                 "status": "running" if self.running else "stopped",
-                "environment": self.environment,
+                "environment": self.environment, # Ambiente que o bot está configurado para operar
                 "version": "2.1_ai_enhanced",
                 
-                # Performance Principal
+                # Performance Principal (global, se o bot não separa por ambiente internamente)
                 "current_balance": round(current_balance, 2),
                 "start_balance": round(self.performance["start_balance"], 2),
                 "total_pnl": round(self.performance["total_pnl"], 2),
@@ -3237,6 +3290,10 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                 "daily_pnl": round(self.performance["daily_pnl"], 2),
                 "daily_trades": self.performance["daily_trades"],
                 
+                # Performance separada por ambiente para o frontend
+                "testnet_performance": testnet_perf_data, 
+                "live_performance": live_perf_data,     
+
                 # Métricas de IA
                 "ai_accuracy": round(self.performance["ai_accuracy"], 2),
                 "ai_predictions": self.performance["ai_predictions"],
@@ -3256,7 +3313,7 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                 "recent_signals_count": len(self.signals_history),
                 "recent_signals": [s.to_dict() for s in self.signals_history[-10:]],
                 "trade_history_count": len(self.trade_history),
-                "trade_history": self.trade_history[-20:], # Only show recent
+                "trade_history": self.trade_history[-20:], 
                 
                 # Configurações
                 "config": {
@@ -3274,14 +3331,14 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                     "ml_available": ML_AVAILABLE,
                     "xgb_available": XGB_AVAILABLE,
                     "sentiment_available": SENTIMENT_AVAILABLE,
-                    "talib_available": TALIB_AVAILABLE, # Add TALIB status
+                    "talib_available": TALIB_AVAILABLE,
                     "model_trained": self.analyzer.ml_predictor.model is not None,
                     "last_retrain": self.analyzer.ml_predictor.last_retrain.isoformat() if self.analyzer.ml_predictor.last_retrain else None,
                     "pattern_database_size": len(self.analyzer.pattern_matcher.patterns),
                     "sentiment_cache_size": len(self.analyzer.sentiment_analyzer.sentiment_cache),
                     "fred_calendar_active": (FRED_API_KEY is not None and FRED_API_KEY != "DUMMY_KEY_FRED"),
                     "fred_events_cached": len(self.analyzer.fred_events_cache),
-                    "fred_last_update": self.analyzer.last_fred_update.isoformat() if self.analyzer.last_update else None, # Corrected key
+                    "fred_last_update": self.analyzer.last_fred_update.isoformat() if self.analyzer.last_fred_update else None,
                     "cryptopanic_active": (CRYPTOPANIC_API_KEY is not None and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC")
                 },
                 
@@ -3297,7 +3354,7 @@ class CombinedAITradingBot(AIEnhancedTradingBot):
                     "kelly_criterion_sizing": True,
                     "fred_economic_calendar_integration": True,
                     "cryptopanic_news_integration": True,
-                    "talib_advanced_analysis": TALIB_AVAILABLE # New feature
+                    "talib_advanced_analysis": TALIB_AVAILABLE
                 }
             }
             
