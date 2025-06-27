@@ -382,6 +382,19 @@ realtime_ohlcv_cache = {
             "last_crossover": None,
             "crossover_alerts": []
         },
+        "rsi_data": { # NOVO: Dados RSI
+            "rsi": [],
+            "last_value": 0.0,
+            "angle": 0.0,
+            "strength": 0.0,
+            "trend": "NEUTRAL"
+        },
+        "macd_angle_data": { # NOVO: Dados de ângulo do MACD
+            "macd_angle": 0.0,
+            "macd_angle_strength": 0.0,
+            "signal_angle": 0.0,
+            "signal_angle_strength": 0.0,
+        },
         "last_update": None,
         "websocket_connected": False
     },
@@ -394,6 +407,19 @@ realtime_ohlcv_cache = {
             "histogram": [],
             "last_crossover": None,
             "crossover_alerts": []
+        },
+        "rsi_data": { # NOVO: Dados RSI
+            "rsi": [],
+            "last_value": 0.0,
+            "angle": 0.0,
+            "strength": 0.0,
+            "trend": "NEUTRAL"
+        },
+        "macd_angle_data": { # NOVO: Dados de ângulo do MACD
+            "macd_angle": 0.0,
+            "macd_angle_strength": 0.0,
+            "signal_angle": 0.0,
+            "signal_angle_strength": 0.0,
         },
         "last_update": None,
         "websocket_connected": False
@@ -1468,68 +1494,150 @@ macd_detector = MACDCrossoverDetector()
 # ===============================================================================
 # 📊 PROCESSADOR DE DADOS TEMPO REAL (NOVO)
 # ===============================================================================
+def calculate_trend_angle_indicator(values: List[float], time_window: int = 5) -> Dict:
+    """Calcula o ângulo de tendência para uma série de valores de indicador."""
+    if len(values) < time_window:
+        return {"angle": 0, "strength": 0}
+
+    try:
+        recent_values = values[-time_window:]
+        x = np.arange(len(recent_values))
+        
+        # Garante que não há valores NaN, que causariam erro na regressão
+        valid_indices = ~np.isnan(recent_values)
+        if not np.any(valid_indices): # Se todos forem NaN
+            return {"angle": 0, "strength": 0}
+        
+        recent_values_clean = np.array(recent_values)[valid_indices]
+        x_clean = x[valid_indices]
+
+        if len(x_clean) < 2: # Mínimo de 2 pontos para regressão
+            return {"angle": 0, "strength": 0}
+
+        slope, _, r_value, _, _ = stats.linregress(x_clean, recent_values_clean)
+        angle = math.degrees(math.atan(slope))
+        strength = r_value ** 2 # R-quadrado como força
+
+        return {
+            "angle": round(angle, 2),
+            "strength": round(strength, 3)
+        }
+    except Exception as e:
+        logger.warning(f"Erro ao calcular ângulo do indicador: {e}")
+        return {"angle": 0, "strength": 0}
 
 def update_realtime_macd(asset: str, new_candle: Dict):
     """
-    Atualiza MACD em tempo real com novo candle
+    Atualiza MACD, RSI e suas inclinações em tempo real com novo candle
     """
     try:
+        # Garante que o asset existe no cache, inicializando se necessário
+        # A estrutura de inicialização já foi atualizada no Passo 2
         if asset not in realtime_ohlcv_cache:
+            logger.warning(f"Ativo {asset} não encontrado no cache OHLCV. Inicializando com defaults.")
             realtime_ohlcv_cache[asset] = {
                 "candles": deque(maxlen=200),
                 "current_candle": None,
-                "macd_data": {
-                    "macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []
-                },
+                "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []},
+                "rsi_data": {"rsi": [], "last_value": 0.0, "angle": 0.0, "strength": 0.0, "trend": "NEUTRAL"},
+                "macd_angle_data": {"macd_angle": 0.0, "macd_angle_strength": 0.0, "signal_angle": 0.0, "signal_angle_strength": 0.0},
                 "last_update": None,
                 "websocket_connected": False
             }
 
+
         realtime_ohlcv_cache[asset]["candles"].append(new_candle)
         realtime_ohlcv_cache[asset]["current_candle"] = new_candle
         realtime_ohlcv_cache[asset]["last_update"] = datetime.now().isoformat()
-        
+
         candles = list(realtime_ohlcv_cache[asset]["candles"])
-        if len(candles) < 34:
-            logger.debug(f"Insufficient candles for MACD for {asset} ({len(candles)}/34)")
-            return
-        
         close_prices = np.array([float(c["close"]) for c in candles])
         
-        macd, macd_signal, macd_hist = talib.MACD(
-            close_prices.astype(np.float64),
-            fastperiod=12,
-            slowperiod=26,  
-            signalperiod=9
-        )
+        # --- Cálculo do MACD ---
+        macd_clean = []
+        signal_clean = []
+        hist_clean = []
         
-        macd_clean = np.nan_to_num(macd).tolist()
-        signal_clean = np.nan_to_num(macd_signal).tolist()
-        hist_clean = np.nan_to_num(macd_hist).tolist()
-        
-        realtime_ohlcv_cache[asset]["macd_data"] = {
-            "macd": macd_clean,
-            "signal": signal_clean,
-            "histogram": hist_clean,
-            "last_update": datetime.now().isoformat()
-        }
-        
-        if len(macd_clean) >= 2 and len(signal_clean) >= 2:
-            crossover = macd_detector.detect_crossover(
-                asset=asset,
-                macd_current=macd_clean[-1],
-                signal_current=signal_clean[-1],  
-                macd_previous=macd_clean[-2],
-                signal_previous=signal_clean[-2]
+        if len(close_prices) >= 34: # MACD requires at least 34 periods
+            macd, macd_signal, macd_hist = talib.MACD(
+                close_prices.astype(np.float64),
+                fastperiod=12,
+                slowperiod=26,  
+                signalperiod=9
             )
             
-            if crossover["type"] != "none":
-                realtime_ohlcv_cache[asset]["macd_data"]["last_crossover"] = crossover
-        
-        logger.debug(f"📊 MACD updated for {asset}: {len(macd_clean)} points")
+            macd_clean = np.nan_to_num(macd).tolist()
+            signal_clean = np.nan_to_num(macd_signal).tolist()
+            hist_clean = np.nan_to_num(macd_hist).tolist()
+            
+            realtime_ohlcv_cache[asset]["macd_data"].update({
+                "macd": macd_clean,
+                "signal": signal_clean,
+                "histogram": hist_clean,
+                "last_update": datetime.now().isoformat()
+            })
+            
+            if len(macd_clean) >= 2 and len(signal_clean) >= 2:
+                crossover = macd_detector.detect_crossover(
+                    asset=asset,
+                    macd_current=macd_clean[-1],
+                    signal_current=signal_clean[-1],  
+                    macd_previous=macd_clean[-2],
+                    signal_previous=signal_clean[-2]
+                )
+                if crossover["type"] != "none":
+                    realtime_ohlcv_cache[asset]["macd_data"]["last_crossover"] = crossover
+            
+            # Calcular ângulos do MACD
+            if len(macd_clean) >= 5 and len(signal_clean) >= 5: # Mínimo 5 pontos para calcular ângulo
+                macd_angle_info = calculate_trend_angle_indicator(macd_clean)
+                signal_angle_info = calculate_trend_angle_indicator(signal_clean)
+                realtime_ohlcv_cache[asset]["macd_angle_data"].update({
+                    "macd_angle": macd_angle_info["angle"],
+                    "macd_angle_strength": macd_angle_info["strength"],
+                    "signal_angle": signal_angle_info["angle"],
+                    "signal_angle_strength": signal_angle_info["strength"],
+                })
+            else: # Se não há dados suficientes, resetar ângulos
+                realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
+            
+        else: # Se não há candles suficientes para MACD, resetar tudo
+            logger.debug(f"Insufficient candles for MACD for {asset} ({len(close_prices)}/34)")
+            realtime_ohlcv_cache[asset]["macd_data"] = {"macd": [], "signal": [], "histogram": [], "last_crossover": None}
+            realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
+
+
+        # --- Cálculo do RSI ---
+        rsi_clean = []
+        if len(close_prices) >= 14: # RSI requires at least 14 periods
+            rsi_values = talib.RSI(close_prices.astype(np.float64), timeperiod=14)
+            rsi_clean = np.nan_to_num(rsi_values).tolist()
+            last_rsi_value = rsi_clean[-1] if rsi_clean else 0.0
+
+            rsi_angle_info = calculate_trend_angle_indicator(rsi_clean)
+            
+            rsi_trend = "NEUTRAL"
+            if rsi_angle_info["angle"] > 10 and rsi_angle_info["strength"] > 0.4:
+                rsi_trend = "RISING"
+            elif rsi_angle_info["angle"] < -10 and rsi_angle_info["strength"] > 0.4:
+                rsi_trend = "FALLING"
+
+            realtime_ohlcv_cache[asset]["rsi_data"].update({
+                "rsi": rsi_clean, # Armazena a série completa de RSI (pode ser útil para depuração)
+                "last_value": round(last_rsi_value, 2),
+                "angle": rsi_angle_info["angle"],
+                "strength": rsi_angle_info["strength"],
+                "trend": rsi_trend,
+                "last_update": datetime.now().isoformat()
+            })
+        else: # Se não há candles suficientes para RSI, resetar
+            logger.debug(f"Insufficient candles for RSI for {asset} ({len(close_prices)}/14)")
+            realtime_ohlcv_cache[asset]["rsi_data"] = {"rsi": [], "last_value": 0.0, "angle": 0, "strength": 0, "trend": "NEUTRAL"}
+            
+        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(macd_clean or [])} pts), RSI ({len(rsi_clean or [])} pts)")
         
     except Exception as e:
-        logger.error(f"Error updating realtime MACD for {asset}: {e}")
+        logger.error(f"Error updating realtime indicators for {asset}: {e}", exc_info=True)
 
 # ===============================================================================
 # 🔌 WEBSOCKET PARA DADOS OHLCV TEMPO REAL (NOVO)
@@ -1649,13 +1757,15 @@ async def fetch_realtime_ohlcv_gateio():
                         update_realtime_macd(asset_key, new_candle)
                         
                         broadcast_data = {
-                            "type": "ohlcv_update",
-                            "asset": asset_key.upper(),
-                            "candle": new_candle,
-                            "macd_data": realtime_ohlcv_cache[asset_key]["macd_data"], 
-                            "timestamp": datetime.now().isoformat()
-                        }
-                        
+                        "type": "ohlcv_update",
+                        "asset": asset_key.upper(),
+                        "candle": new_candle,
+                        "macd_data": realtime_ohlcv_cache[asset_key]["macd_data"],
+                        "rsi_data": realtime_ohlcv_cache[asset_key]["rsi_data"], # NOVO
+                        "macd_angle_data": realtime_ohlcv_cache[asset_key]["macd_angle_data"], # NOVO
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
                         await broadcast_ohlcv_update(broadcast_data)
                         
                         logger.debug(f"📊 New {asset_key.upper()} candle: ${new_candle['close']:,.2f}, Vol: {new_candle['volume']:,.0f}")

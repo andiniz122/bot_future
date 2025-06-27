@@ -1,1733 +1,1501 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Trading Dashboard Pro v6.0</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #1a1f2e;
-            --bg-card: #242937;
-            --bg-hover: #2a2f3e;
-            --accent-green: #00ff88;
-            --accent-red: #ff4757;
-            --accent-blue: #3742fa;
-            --accent-gold: #ffd700;
-            --text-primary: #ffffff;
-            --text-secondary: #a0a6b8;
-            --border-color: #3a3f4e;
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --gradient-success: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
-            --gradient-danger: linear-gradient(135deg, #ff4757 0%, #cc3644 100%);
-            --gradient-warning: linear-gradient(135deg, #ffd700 0%, #ffb347 100%);
-        }
-
-        body {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            overflow-x: hidden;
-        }
-
-        .dashboard-container {
-            display: grid;
-            grid-template-columns: 280px 1fr;
-            min-height: 100vh;
-        }
-
-        /* Sidebar */
-        .sidebar {
-            background: var(--bg-secondary);
-            border-right: 1px solid var(--border-color);
-            padding: 2rem 1rem;
-            position: fixed;
-            height: 100vh;
-            width: 280px;
-            overflow-y: auto;
-            z-index: 1000;
-        }
-
-        .logo {
-            text-align: center;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .logo h1 {
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-
-        .logo .version {
-            color: var(--text-secondary);
-            font-size: 0.8rem;
-            margin-top: 0.5rem;
-        }
-
-        .nav-menu {
-            list-style: none;
-        }
-
-        .nav-item {
-            margin-bottom: 0.5rem;
-        }
-
-        .nav-link {
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            border-radius: 12px;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .nav-link:hover, .nav-link.active {
-            background: var(--bg-hover);
-            color: var(--text-primary);
-            transform: translateX(5px);
-        }
-
-        .nav-link i {
-            margin-right: 0.75rem;
-            width: 20px;
-        }
-
-        .nav-link.active {
-            background: var(--gradient-primary);
-            color: white;
-        }
-
-        /* Main Content */
-        .main-content {
-            margin-left: 280px;
-            padding: 2rem;
-            background: var(--bg-primary);
-        }
-
-        .header {
-            display: flex;
-            justify-content: between;
-            align-items: center;
-            margin-bottom: 2rem;
-            padding: 1.5rem;
-            background: var(--bg-card);
-            border-radius: 16px;
-            border: 1px solid var(--border-color);
-        }
-
-        .header-title {
-            font-size: 2rem;
-            font-weight: bold;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .header-controls {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        .status-indicator {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: var(--bg-secondary);
-            border-radius: 20px;
-            border: 1px solid var(--border-color);
-        }
-
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--accent-green);
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .status-dot.offline {
-            background: var(--accent-red);
-        }
-
-        /* Cards Grid */
-        .cards-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
-        }
-
-        .card {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-            border-color: var(--accent-blue);
-            box-shadow: 0 12px 48px rgba(55, 66, 250, 0.2);
-        }
-
-        .card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .card-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .card-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.2rem;
-        }
-
-        .card-value {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .card-change {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.9rem;
-        }
-
-        .change-positive {
-            color: var(--accent-green);
-        }
-
-        .change-negative {
-            color: var(--accent-red);
-        }
-
-        /* Trading Bot Status Card */
-        .bot-status-card {
-            background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
-            position: relative;
-        }
-
-        .bot-status-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: var(--gradient-success);
-            border-radius: 16px 16px 0 0;
-        }
-
-        .bot-controls {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 1rem;
-        }
-
-        .btn {
-            padding: 0.75rem 1.5rem;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            text-decoration: none;
-            font-size: 0.9rem;
-        }
-
-        .btn-primary {
-            background: var(--gradient-primary);
-            color: white;
-        }
-
-        .btn-success {
-            background: var(--gradient-success);
-            color: white;
-        }
-
-        .btn-danger {
-            background: var(--gradient-danger);
-            color: white;
-        }
-
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        }
-
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        /* Chart Container */
-        .chart-container {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            margin-bottom: 2rem;
-        }
-
-        .chart-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .chart-title {
-            font-size: 1.3rem;
-            font-weight: bold;
-        }
-
-        .chart-controls {
-            display: flex;
-            gap: 0.5rem;
-        }
-
-        .period-btn {
-            padding: 0.5rem 1rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            color: var(--text-secondary);
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .period-btn.active, .period-btn:hover {
-            background: var(--accent-blue);
-            color: white;
-            border-color: var(--accent-blue);
-        }
-
-        .chart-wrapper {
-            position: relative;
-            height: 400px;
-        }
-
-        /* Sentiment Cards */
-        .sentiment-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .sentiment-card {
-            background: var(--bg-card);
-            border-radius: 12px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .sentiment-gauge {
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 1rem;
-            position: relative;
-        }
-
-        .gauge-circle {
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            background: conic-gradient(
-                from 0deg,
-                var(--accent-red) 0deg 72deg,
-                var(--accent-gold) 72deg 144deg,
-                var(--accent-green) 144deg 216deg
-            );
-            position: relative;
-        }
-
-        .gauge-inner {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 80%;
-            height: 80%;
-            background: var(--bg-card);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-        }
-
-        .gauge-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-        }
-
-        .gauge-label {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-
-        /* Real-time Data Indicators */
-        .realtime-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            background: var(--bg-secondary);
-            border-radius: 12px;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-
-        .realtime-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--accent-green);
-        }
-
-        /* Alerts Section */
-        .alerts-section {
-            background: var(--bg-card);
-            border-radius: 16px;
-            padding: 1.5rem;
-            border: 1px solid var(--border-color);
-            margin-bottom: 2rem;
-        }
-
-        .alerts-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 1rem;
-        }
-
-        .alert-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem;
-            background: var(--bg-secondary);
-            border-radius: 8px;
-            margin-bottom: 0.5rem;
-            border-left: 4px solid var(--accent-blue);
-            transition: all 0.3s ease;
-        }
-
-        .alert-item:hover {
-            background: var(--bg-hover);
-        }
-
-        .alert-item.high {
-            border-left-color: var(--accent-red);
-        }
-
-        .alert-item.medium {
-            border-left-color: var(--accent-gold);
-        }
-
-        .alert-item.low {
-            border-left-color: var(--accent-green);
-        }
-
-        .alert-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--bg-card);
-        }
-
-        .alert-content {
-            flex: 1;
-        }
-
-        .alert-title {
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-        }
-
-        .alert-message {
-            color: var(--text-secondary);
-            font-size: 0.9rem;
-        }
-
-        .alert-time {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-        }
-
-        /* Responsive Design */
-        @media (max-width: 1024px) {
-            .dashboard-container {
-                grid-template-columns: 1fr;
-            }
-            
-            .sidebar {
-                position: fixed;
-                left: -280px;
-                transition: left 0.3s ease;
-                z-index: 1000;
-            }
-            
-            .sidebar.open {
-                left: 0;
-            }
-            
-            .main-content {
-                margin-left: 0;
-            }
-            
-            .cards-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .main-content {
-                padding: 1rem;
-            }
-            
-            .header {
-                flex-direction: column;
-                gap: 1rem;
-                text-align: center;
-            }
-            
-            .header-controls {
-                justify-content: center;
-            }
-            
-            .chart-wrapper {
-                height: 300px;
-            }
-        }
-
-        /* Loading Animation */
-        .loading {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255,255,255,.3);
-            border-radius: 50%;
-            border-top-color: var(--accent-blue);
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Connection Status */
-        .connection-status {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 0.75rem 1rem;
-            background: var(--bg-card);
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.8rem;
-            z-index: 1000;
-        }
-
-        /* Hide sections by default */
-        .content-section {
-            display: none;
-        }
-
-        .content-section.active {
-            display: block;
-        }
-
-        /* WebSocket Status Indicators */
-        .ws-status {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.8rem;
-        }
-
-        .ws-indicator {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--accent-red);
-        }
-
-        .ws-indicator.connected {
-            background: var(--accent-green);
-            animation: pulse 2s infinite;
-        }
-    </style>
-</head>
-<body>
-    <div class="dashboard-container">
-        <!-- Sidebar -->
-        <nav class="sidebar" id="sidebar">
-            <div class="logo">
-                <h1><i class="fas fa-chart-line"></i> Trading Pro</h1>
-                <div class="version">v6.0 - Real Data</div>
-            </div>
-            
-            <ul class="nav-menu">
-                <li class="nav-item">
-                    <a href="#" class="nav-link active" data-section="overview">
-                        <i class="fas fa-tachometer-alt"></i>
-                        Overview
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="markets">
-                        <i class="fas fa-chart-candlestick"></i>
-                        Mercados
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="bot">
-                        <i class="fas fa-robot"></i>
-                        Trading Bot
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="sentiment">
-                        <i class="fas fa-brain"></i>
-                        Sentimento
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="calendar">
-                        <i class="fas fa-calendar-alt"></i>
-                        Calendário FRED
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="alerts">
-                        <i class="fas fa-bell"></i>
-                        Alertas
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a href="#" class="nav-link" data-section="analytics">
-                        <i class="fas fa-chart-pie"></i>
-                        Analytics
-                    </a>
-                </li>
-            </ul>
-        </nav>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Header -->
-            <header class="header">
-                <div>
-                    <h1 class="header-title">Trading Dashboard Pro</h1>
-                    <div class="realtime-indicator">
-                        <div class="realtime-dot"></div>
-                        Dados em Tempo Real
-                    </div>
-                </div>
-                <div class="header-controls">
-                    <div class="status-indicator">
-                        <div class="status-dot" id="apiStatus"></div>
-                        <span id="apiStatusText">Conectando...</span>
-                    </div>
-                    <div class="ws-status">
-                        <div class="ws-indicator" id="wsIndicator"></div>
-                        <span id="wsStatusText">WebSocket</span>
-                    </div>
-                    <button class="btn btn-primary" onclick="refreshAllData()">
-                        <i class="fas fa-sync-alt"></i>
-                        Atualizar
-                    </button>
-                </div>
-            </header>
-
-            <!-- Overview Section -->
-            <section id="overview" class="content-section active">
-                <div class="cards-grid">
-                    <!-- Market Cards -->
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Bitcoin (BTC)</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #ff8c00, #ff6b47);">
-                                <i class="fab fa-bitcoin"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="btcPrice">$0</div>
-                        <div class="card-change" id="btcSentimentTrend">
-                            <span>Tendência: Neutral</span>
-                        </div>
-                    </div>
-
-                    <div class="sentiment-card">
-                        <h3>Fear & Greed Index</h3>
-                        <div class="sentiment-gauge">
-                            <div class="gauge-circle">
-                                <div class="gauge-inner">
-                                    <div class="gauge-value" id="fearGreedValue">50</div>
-                                    <div class="gauge-label">Index</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-change" id="marketMood">
-                            <span>Humor: Neutro</span>
-                        </div>
-                    </div>
-
-                    <div class="sentiment-card">
-                        <h3>PAXG Sentiment</h3>
-                        <div class="sentiment-gauge">
-                            <div class="gauge-circle">
-                                <div class="gauge-inner">
-                                    <div class="gauge-value" id="paxgSentimentValue">50</div>
-                                    <div class="gauge-label">Buyers %</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-change" id="paxgSentimentTrend">
-                            <span>Tendência: Neutral</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sentiment History Chart -->
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Histórico de Sentimento (24h)</h3>
-                        <div class="realtime-indicator">
-                            <div class="realtime-dot"></div>
-                            Atualização Automática
-                        </div>
-                    </div>
-                    <div class="chart-wrapper">
-                        <canvas id="sentimentChart"></canvas>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Calendar Section -->
-            <section id="calendar" class="content-section">
-                <div class="cards-grid">
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Eventos Hoje</span>
-                            <div class="card-icon" style="background: var(--gradient-danger);">
-                                <i class="fas fa-calendar-day"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="eventsToday">0</div>
-                        <div class="card-change" id="highImpactToday">
-                            <span>Alto Impacto: 0</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Próximos Eventos</span>
-                            <div class="card-icon" style="background: var(--gradient-warning);">
-                                <i class="fas fa-clock"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="upcomingEvents">0</div>
-                        <div class="card-change" id="nextCritical">
-                            <span>Próximo Crítico: N/A</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Economic Events List -->
-                <div class="alerts-section">
-                    <div class="alerts-header">
-                        <h3><i class="fas fa-calendar-alt"></i> Calendário Econômico FRED</h3>
-                        <div class="realtime-indicator">
-                            <div class="realtime-dot"></div>
-                            FRED API Ativa
-                        </div>
-                    </div>
-                    <div id="economicEvents">
-                        <div class="alert-item">
-                            <div class="alert-content">
-                                <div class="alert-title">Carregando eventos econômicos...</div>
-                                <div class="alert-message">Aguarde enquanto buscamos os dados do FRED...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Alerts Section -->
-            <section id="alerts" class="content-section">
-                <div class="alerts-section">
-                    <div class="alerts-header">
-                        <h3><i class="fas fa-bell"></i> Sistema de Alertas</h3>
-                        <div class="header-controls">
-                            <div class="status-indicator">
-                                <div class="status-dot"></div>
-                                <span id="alertsCount">0 alertas</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="alertsList">
-                        <!-- Alerts will be populated here -->
-                    </div>
-                </div>
-            </section>
-
-            <!-- Analytics Section -->
-            <section id="analytics" class="content-section">
-                <div class="cards-grid">
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Análise Angular</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #a55eea, #8854d0);">
-                                <i class="fas fa-compass"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="angularStrength">0%</div>
-                        <div class="card-change" id="angularTrend">
-                            <span>Direção: Neutro</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Padrões Detectados</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #ff6348, #ff4757);">
-                                <i class="fas fa-search"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="patternsCount">0</div>
-                        <div class="card-change" id="patternsConfidence">
-                            <span>Confiança: 0%</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Angular Analysis Chart -->
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Análise Angular dos Ativos</h3>
-                    </div>
-                    <div class="chart-wrapper">
-                        <canvas id="angularChart"></canvas>
-                    </div>
-                </div>
-            </section>
-        </main>
-    </div>
-
-    <!-- Connection Status -->
-    <div class="connection-status" id="connectionStatus">
-        <div class="ws-indicator" id="connectionIndicator"></div>
-        <span id="connectionText">Conectando...</span>
-    </div>
-
-    <script>
-        // Global variables
-        let priceChart, macdChart, sentimentChart, botPerformanceChart, angularChart;
-        let sentimentWS, ohlcvWS, rsiMacdWS;
-        let currentData = {};
-        let chartPeriod = '1d';
-
-        // API Configuration
-        const API_BASE_URL = 'http://localhost:8000/api';
-        const WS_BASE_URL = 'ws://localhost:8000/ws';
-
-        // Initialize Dashboard
-        document.addEventListener('DOMContentLoaded', function() {
-            initializeCharts();
-            initializeNavigation();
-            loadInitialData();
-            connectWebSockets();
-            startDataRefresh();
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar, ComposedChart, Area
+} from 'recharts';
+import {
+  TrendingUp, TrendingDown, Activity, DollarSign, BarChart3, Zap, Globe, Clock,
+  AlertTriangle, Play, Pause, Settings, Wifi, WifiOff, Database, Brain, Calendar, Bell, Info
+} from 'lucide-react';
+
+const BloombergDashboard = () => {
+  // Estado para armazenar os dados das APIs
+  const [marketData, setMarketData] = useState(null); // Dados de /api/current
+  const [chartData, setChartData] = useState({ combined: [], period: '1d', dataPoints: 0, lastUpdate: null, fallback: false }); // Dados de /api/precos/{period}
+  const [selectedPeriod, setSelectedPeriod] = useState('1d'); // Período selecionado para o gráfico
+  const [botStatus, setBotStatus] = useState(null); // Dados de /api/trading-bot/status
+  const [sentimentData, setSentimentData] = useState(null); // Dados de /api/sentiment ou ws/sentiment
+  const [alerts, setAlerts] = useState([]); // Dados de /api/alerts
+  const [economicCalendar, setEconomicCalendar] = useState([]); // Dados de /api/calendar
+  const [backtestRecommendations, setBacktestRecommendations] = useState([]); // Dados de /api/backtest-recommendations
+  const [financialData, setFinancialData] = useState({ // Dados de /api/trading-bot/performance e /api/trading-bot/positions
+    testnet: {
+      balance: 0,
+      startBalance: 10000,
+      totalPnL: 0,
+      dailyPnL: 0,
+      totalTrades: 0,
+      winningTrades: 0,
+      winRate: 0,
+      maxDrawdown: 0,
+      roiPercent: 0,
+      lastUpdate: null
+    },
+    live: {
+      balance: 0,
+      startBalance: 0,
+      totalPnL: 0,
+      dailyPnL: 0,
+      totalTrades: 0,
+      winningTrades: 0,
+      winRate: 0,
+      maxDrawdown: 0,
+      roiPercent: 0,
+      lastUpdate: null
+    },
+    recentTrades: [] // Posições ativas e sinais recentes
+  });
+
+  // Estados da UI/UX
+  const [isLoading, setIsLoading] = useState(true); // Indica se a carga inicial está em andamento
+  const [connectionStatus, setConnectionStatus] = useState('connecting'); // Status geral da conexão com o backend
+  const [environment, setEnvironment] = useState('testnet'); // Ambiente do bot (testnet ou live)
+  const [showEnvironmentModal, setShowEnvironmentModal] = useState(false); // Exibir modal de seleção de ambiente
+  const [selectedFinancialTab, setSelectedFinancialTab] = useState('testnet'); // Aba selecionada para dados financeiros
+  const [wsConnections, setWsConnections] = useState({ // Status das conexões WebSocket
+    sentiment: false,
+    ohlcv: false,
+    rsiMacd: false
+  });
+
+  // Backend API Base URL - ATENÇÃO: Ajuste este IP/PORTA conforme o seu servidor FastAPI
+  const API_BASE = 'http://62.72.1.122:8000'; // Exemplo: 'http://localhost:8000' ou 'http://seu_ip_publico:8000'
+
+  // --- Funções de Formatação ---
+  const formatCurrency = useCallback((value) => {
+    if (value === null || value === undefined) return '$0.00';
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(value);
+  }, []);
+
+  const formatPercentage = useCallback((value) => {
+    if (value === null || value === undefined) return '0.00%';
+    const formatted = value.toFixed(2);
+    return `${value > 0 ? '+' : ''}${formatted}%`;
+  }, []);
+
+  const formatPnL = useCallback((value, isPercentage = false) => {
+    let colorClass = 'text-gray-400';
+    if (value > 0) {
+      colorClass = 'text-green-400';
+    } else if (value < 0) {
+      colorClass = 'text-red-400';
+    }
+
+    const formattedValue = isPercentage ? formatPercentage(value) : formatCurrency(value);
+    return { formatted: formattedValue, colorClass };
+  }, [formatCurrency, formatPercentage]);
+
+
+  // --- Funções de Fetch de Dados (REST) ---
+
+  // Busca dados de mercado em tempo real de /api/current
+  const fetchMarketData = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/current`);
+      if (!response.ok) throw new Error(`Failed to fetch market data: ${response.statusText}`);
+      const data = await response.json();
+      setMarketData(data);
+      setConnectionStatus('connected'); // Se ao menos esta API responde, consideramos conectado
+    } catch (error) {
+      console.error('Error fetching market data:', error);
+      setConnectionStatus('error'); // Se falhar, marca como erro
+    }
+  }, []);
+
+  // Busca dados históricos de gráficos de /api/precos/{period}
+  const fetchChartData = useCallback(async (period) => {
+    setIsLoading(true); // Ativa loading para o gráfico
+    try {
+      const response = await fetch(`${API_BASE}/api/precos/${period}`);
+      if (!response.ok) throw new Error(`Failed to fetch chart data for ${period}: ${response.statusText}`);
+      const data = await response.json();
+
+      const chartPoints = [];
+      if (data.dates && data.assets) {
+        data.dates.forEach((date, index) => {
+          const point = {
+            time: new Date(date).getTime(), // Para o eixo X de tempo
+            date: new Date(date).toLocaleDateString(), // Para exibir no tooltip
+            timestamp: date // O timestamp original da API
+          };
+
+          Object.keys(data.assets).forEach(asset => {
+            const assetData = data.assets[asset];
+            // Garante que os valores são numéricos ou 0/null para evitar NaN/erros de gráfico
+            point[`${asset}_price`] = Number(assetData?.price_data?.[index]) || null;
+            point[`${asset}_volume`] = Number(assetData?.volume_data?.[index]) || null;
+            point[`${asset}_macd`] = Number(assetData?.macd_data?.[index]) || null;
+            point[`${asset}_macd_signal`] = Number(assetData?.macd_signal_data?.[index]) || null;
+            point[`${asset}_macd_hist`] = Number(assetData?.macd_hist_data?.[index]) || null;
+          });
+          chartPoints.push(point);
         });
+      }
 
-        // Navigation
-        function initializeNavigation() {
-            const navLinks = document.querySelectorAll('.nav-link');
-            const sections = document.querySelectorAll('.content-section');
+      setChartData({
+        combined: chartPoints,
+        period: period,
+        dataPoints: chartPoints.length,
+        lastUpdate: new Date().toISOString(),
+        fallback: data.status === 'error' // Se o backend indicar fallback/erro
+      });
+    } catch (error) {
+      console.error('Error fetching chart data:', error);
+      setChartData(prev => ({
+        ...prev,
+        combined: [], // Limpa os dados em caso de erro
+        period: period,
+        dataPoints: 0,
+        lastUpdate: new Date().toISOString(),
+        fallback: true // Indica que está em modo de fallback
+      }));
+    } finally {
+      setIsLoading(false); // Desativa loading do gráfico
+    }
+  }, []);
 
-            navLinks.forEach(link => {
-                link.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    
-                    // Remove active class from all links and sections
-                    navLinks.forEach(l => l.classList.remove('active'));
-                    sections.forEach(s => s.classList.remove('active'));
-                    
-                    // Add active class to clicked link
-                    link.classList.add('active');
-                    
-                    // Show corresponding section
-                    const sectionId = link.getAttribute('data-section');
-                    const section = document.getElementById(sectionId);
-                    if (section) {
-                        section.classList.add('active');
-                    }
-                });
-            });
+  // Busca status do bot de trading de /api/trading-bot/status
+  const fetchBotStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/trading-bot/status`);
+      if (!response.ok) throw new Error(`Failed to fetch bot status: ${response.statusText}`);
+      const data = await response.json();
+      setBotStatus(data);
+      // Atualiza o ambiente do frontend com o ambiente reportado pelo bot
+      if (data.environment) {
+        setEnvironment(data.environment.toLowerCase());
+      }
+    } catch (error) {
+      console.error('Error fetching bot status:', error);
+      // Pode definir um status de erro para o bot aqui se necessário
+      setBotStatus(prev => prev ? { ...prev, status: 'error', error: error.message } : null);
+    }
+  }, []);
 
-            // Period buttons
-            const periodButtons = document.querySelectorAll('.period-btn');
-            periodButtons.forEach(btn => {
-                btn.addEventListener('click', () => {
-                    periodButtons.forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    chartPeriod = btn.getAttribute('data-period');
-                    loadPriceData(chartPeriod);
-                });
-            });
-        }
+  // Busca sentimento de mercado de /api/sentiment (REST fallback para WS)
+  const fetchSentiment = useCallback(async () => {
+    // Esta função será usada como fallback se o WebSocket de sentimento não conectar
+    try {
+      const response = await fetch(`${API_BASE}/api/sentiment`);
+      if (!response.ok) throw new Error(`Failed to fetch sentiment: ${response.statusText}`);
+      const data = await response.json();
+      setSentimentData(data);
+    } catch (error) {
+      console.error('Error fetching sentiment (REST):', error);
+    }
+  }, []);
 
-        // Initialize Charts
-        function initializeCharts() {
-            const chartOptions = {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        labels: { color: '#a0a6b8' }
-                    }
-                },
-                scales: {
-                    x: {
-                        ticks: { color: '#a0a6b8' },
-                        grid: { color: '#3a3f4e' }
-                    },
-                    y: {
-                        ticks: { color: '#a0a6b8' },
-                        grid: { color: '#3a3f4e' }
-                    }
+  // Busca alertas de /api/alerts
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/alerts`);
+      if (!response.ok) throw new Error(`Failed to fetch alerts: ${response.statusText}`);
+      const data = await response.json();
+      setAlerts(data.alerts || []);
+    } catch (error) {
+      console.error('Error fetching alerts:', error);
+    }
+  }, []);
+
+  // Busca calendário econômico de /api/calendar
+  const fetchEconomicCalendar = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/calendar`);
+      if (!response.ok) throw new Error(`Failed to fetch economic calendar: ${response.statusText}`);
+      const data = await response.json();
+      // Filtra apenas eventos futuros para exibir os próximos
+      const now = new Date();
+      const upcoming = (data.upcoming_events || []).filter(event => new Date(event.date) >= now);
+      setEconomicCalendar(upcoming);
+    } catch (error) {
+      console.error('Error fetching economic calendar:', error);
+    }
+  }, []);
+
+  // Busca recomendações de backtest de /api/backtest-recommendations
+  const fetchBacktestRecommendations = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/backtest-recommendations`);
+      if (!response.ok) throw new Error(`Failed to fetch backtest recommendations: ${response.statusText}`);
+      const data = await response.json();
+      setBacktestRecommendations(data.recommendations || []);
+    } catch (error) {
+      console.error('Error fetching backtest recommendations:', error);
+    }
+  }, []);
+
+  // Busca dados de performance e posições financeiras
+  const fetchFinancialData = useCallback(async () => {
+    try {
+      const performanceResponse = await fetch(`${API_BASE}/api/trading-bot/performance`);
+      const positionsResponse = await fetch(`${API_BASE}/api/trading-bot/positions`);
+      const signalsResponse = await fetch(`${API_BASE}/api/trading-bot/signals`);
+
+      let performanceData = {};
+      if (performanceResponse.ok) {
+        performanceData = await performanceResponse.json();
+      } else {
+        console.error('Failed to fetch bot performance:', performanceResponse.statusText);
+      }
+
+      let positions = [];
+      if (positionsResponse.ok) {
+        const posData = await positionsResponse.json();
+        positions = posData.positions || [];
+      } else {
+        console.error('Failed to fetch active positions:', positionsResponse.statusText);
+      }
+
+      let signals = [];
+      if (signalsResponse.ok) {
+        const sigData = await signalsResponse.json();
+        signals = sigData.signals || [];
+      } else {
+        console.error('Failed to fetch recent signals:', signalsResponse.statusText);
+      }
+
+      // Combina posições ativas e sinais recentes para 'recentTrades'
+      const combinedRecentTrades = [...positions, ...signals]
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()) // Ordena por data mais recente
+        .slice(0, 10); // Pega os 10 mais recentes
+
+      const currentEnv = botStatus?.environment?.toLowerCase() || environment; // Usa o ambiente do bot se disponível
+
+      setFinancialData(prev => ({
+        ...prev,
+        [currentEnv]: { // Atualiza apenas o ambiente correto
+          balance: performanceData.current_balance || 0,
+          startBalance: performanceData.start_balance || (currentEnv === 'testnet' ? 10000 : 0),
+          totalPnL: performanceData.total_pnl || 0,
+          dailyPnL: performanceData.daily_pnl || 0,
+          totalTrades: performanceData.total_trades || 0,
+          winningTrades: performanceData.winning_trades || 0,
+          winRate: performanceData.win_rate || 0,
+          maxDrawdown: performanceData.max_drawdown || 0,
+          roiPercent: performanceData.roi_percentage || 0,
+          lastUpdate: performanceData.last_update || new Date().toISOString()
+        },
+        recentTrades: combinedRecentTrades
+      }));
+    } catch (error) {
+      console.error('Error fetching financial data:', error);
+    }
+  }, [botStatus, environment]); // Depende de botStatus para pegar o ambiente atual do bot
+
+  // --- Funções de Controle do Bot ---
+  const sendBotCommand = useCallback(async (endpoint, method = 'POST', body = {}) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/trading-bot/${endpoint}`, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Failed to ${endpoint}: ${errorData.detail || response.statusText}`);
+      }
+      const result = await response.json();
+      console.log(`Bot ${endpoint} successful:`, result);
+      fetchBotStatus(); // Atualiza o status do bot após o comando
+      return true;
+    } catch (error) {
+      console.error(`Error with bot ${endpoint}:`, error);
+      alert(`Error: ${error.message}`);
+      return false;
+    }
+  }, [fetchBotStatus]);
+
+  const startBot = useCallback(() => {
+    confirmStart(); // Usa a função de confirmação para o LIVE MODE
+  }, []);
+
+  const stopBot = useCallback(() => {
+    sendBotCommand('stop');
+  }, [sendBotCommand]);
+
+  const confirmStart = () => {
+    if (environment === 'live') {
+      const confirmed = window.confirm(
+        '⚠️ AVISO: Você está prestes a iniciar o bot em modo LIVE com DINHEIRO REAL!\n\n' +
+        'Isso executará trades reais na sua conta.\n\n' +
+        'Tem certeza absoluta que deseja continuar?'
+      );
+      if (!confirmed) return;
+    }
+    sendBotCommand('start', 'POST', { environment: environment });
+  };
+
+  // Lógica para mudar o ambiente do bot
+  const handleEnvironmentChange = (newEnv) => {
+    if (botStatus?.status === 'running') {
+      alert('Por favor, pare o bot antes de mudar o ambiente.');
+      return;
+    }
+    setEnvironment(newEnv);
+    setShowEnvironmentModal(false);
+  };
+
+  // --- Configuração das Conexões WebSocket ---
+  const setupWebSockets = useCallback(() => {
+    const wsBase = `ws://62.72.1.122:8000`; // Ajuste este IP/PORTA se necessário
+
+    // WebSocket de Sentimento
+    const connectSentimentWs = () => {
+      try {
+        const sentimentWs = new WebSocket(`${wsBase}/ws/sentiment`);
+        sentimentWs.onopen = () => {
+          setWsConnections(prev => ({ ...prev, sentiment: true }));
+          console.log('Sentiment WebSocket connected.');
+        };
+        sentimentWs.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          setSentimentData(data);
+        };
+        sentimentWs.onclose = (e) => {
+          setWsConnections(prev => ({ ...prev, sentiment: false }));
+          console.warn('Sentiment WebSocket disconnected:', e.code, e.reason);
+          // Tenta reconectar após um pequeno delay
+          setTimeout(connectSentimentWs, 5000);
+        };
+        sentimentWs.onerror = (err) => {
+          console.error('Sentiment WebSocket error:', err);
+          sentimentWs.close();
+        };
+      } catch (error) {
+        console.error('Sentiment WebSocket setup error:', error);
+      }
+    };
+
+    // WebSocket de OHLCV
+    const connectOhlcvWs = () => {
+      try {
+        const ohlcvWs = new WebSocket(`${wsBase}/ws/ohlcv`);
+        ohlcvWs.onopen = () => {
+          setWsConnections(prev => ({ ...prev, ohlcv: true }));
+          console.log('OHLCV WebSocket connected.');
+        };
+        ohlcvWs.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.type === 'ohlcv_update') {
+            setChartData(prev => {
+              const newCombined = [...prev.combined];
+              const newCandle = data.candle;
+              const assetKey = data.asset.toLowerCase();
+
+              // Busca ou cria o ponto de dados para o timestamp da nova vela
+              let existingPoint = newCombined.find(
+                p => p.time === newCandle.timestamp * 1000
+              );
+
+              if (existingPoint) {
+                // Atualiza o ponto existente (se for a vela atual ainda em formação)
+                existingPoint[`${assetKey}_price`] = newCandle.close;
+                existingPoint[`${assetKey}_volume`] = newCandle.volume;
+                // Atualiza MACD se os dados estiverem na atualização
+                if (data.macd_data) {
+                  existingPoint[`${assetKey}_macd`] = data.macd_data.macd?.[data.macd_data.macd.length - 1] || null;
+                  existingPoint[`${assetKey}_macd_signal`] = data.macd_data.signal?.[data.macd_data.signal.length - 1] || null;
+                  existingPoint[`${assetKey}_macd_hist`] = data.macd_data.histogram?.[data.macd_data.histogram.length - 1] || null;
                 }
-            };
+              } else {
+                // Adiciona um novo ponto se for uma nova vela fechada
+                const newPoint = {
+                  time: newCandle.timestamp * 1000,
+                  date: new Date(newCandle.timestamp * 1000).toLocaleDateString(),
+                  timestamp: newCandle.datetime,
+                  [`${assetKey}_price`]: newCandle.close,
+                  [`${assetKey}_volume`]: newCandle.volume,
+                  [`${assetKey}_macd`]: data.macd_data?.macd?.[data.macd_data.macd.length - 1] || null,
+                  [`${assetKey}_macd_signal`]: data.macd_data?.signal?.[data.macd_data.signal.length - 1] || null,
+                  [`${assetKey}_macd_hist`]: data.macd_data?.histogram?.[data.macd_data.histogram.length - 1] || null,
+                };
+                newCombined.push(newPoint);
+              }
 
-            // Price Chart
-            const priceCtx = document.getElementById('priceChart').getContext('2d');
-            priceChart = new Chart(priceCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'Bitcoin',
-                            data: [],
-                            borderColor: '#ff8c00',
-                            backgroundColor: 'rgba(255, 140, 0, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Gold',
-                            data: [],
-                            borderColor: '#ffd700',
-                            backgroundColor: 'rgba(255, 215, 0, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'DXY',
-                            data: [],
-                            borderColor: '#00cc66',
-                            backgroundColor: 'rgba(0, 204, 102, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: chartOptions
+              // Limita o número de pontos para o gráfico (ex: últimos 200)
+              return { ...prev, combined: newCombined.slice(-200) };
             });
+          }
+        };
+        ohlcvWs.onclose = (e) => {
+          setWsConnections(prev => ({ ...prev, ohlcv: false }));
+          console.warn('OHLCV WebSocket disconnected:', e.code, e.reason);
+          setTimeout(connectOhlcvWs, 5000);
+        };
+        ohlcvWs.onerror = (err) => {
+          console.error('OHLCV WebSocket error:', err);
+          ohlcvWs.close();
+        };
+      } catch (error) {
+        console.error('OHLCV WebSocket setup error:', error);
+      }
+    };
 
-            // MACD Chart
-            const macdCtx = document.getElementById('macdChart').getContext('2d');
-            macdChart = new Chart(macdCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'MACD',
-                            data: [],
-                            borderColor: '#3742fa',
-                            backgroundColor: 'rgba(55, 66, 250, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Signal',
-                            data: [],
-                            borderColor: '#ff4757',
-                            backgroundColor: 'rgba(255, 71, 87, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: chartOptions
-            });
+    // WebSocket de RSI/MACD (para o card específico)
+    const connectRsiMacdWs = () => {
+      try {
+        const rsiMacdWs = new WebSocket(`${wsBase}/ws/rsi-macd`);
+        rsiMacdWs.onopen = () => {
+          setWsConnections(prev => ({ ...prev, rsiMacd: true }));
+          console.log('RSI/MACD WebSocket connected.');
+        };
+        rsiMacdWs.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          // Você pode atualizar um estado específico para o card de RSI/MACD aqui
+          // Por exemplo: setRsiMacdMetrics(data);
+          console.log('RSI/MACD update:', data);
+        };
+        rsiMacdWs.onclose = (e) => {
+          setWsConnections(prev => ({ ...prev, rsiMacd: false }));
+          console.warn('RSI/MACD WebSocket disconnected:', e.code, e.reason);
+          setTimeout(connectRsiMacdWs, 5000);
+        };
+        rsiMacdWs.onerror = (err) => {
+          console.error('RSI/MACD WebSocket error:', err);
+          rsiMacdWs.close();
+        };
+      } catch (error) {
+        console.error('RSI/MACD WebSocket setup error:', error);
+      }
+    };
 
-            // Sentiment Chart
-            const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
-            sentimentChart = new Chart(sentimentCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'BTC Buyers %',
-                            data: [],
-                            borderColor: '#ff8c00',
-                            backgroundColor: 'rgba(255, 140, 0, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'Fear & Greed',
-                            data: [],
-                            borderColor: '#ffd700',
-                            backgroundColor: 'rgba(255, 215, 0, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: chartOptions
-            });
+    connectSentimentWs();
+    connectOhlcvWs();
+    connectRsiMacdWs();
 
-            // Bot Performance Chart
-            const botCtx = document.getElementById('botPerformanceChart').getContext('2d');
-            botPerformanceChart = new Chart(botCtx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: [
-                        {
-                            label: 'Balance',
-                            data: [],
-                            borderColor: '#00ff88',
-                            backgroundColor: 'rgba(0, 255, 136, 0.1)',
-                            tension: 0.4
-                        },
-                        {
-                            label: 'PnL',
-                            data: [],
-                            borderColor: '#3742fa',
-                            backgroundColor: 'rgba(55, 66, 250, 0.1)',
-                            tension: 0.4
-                        }
-                    ]
-                },
-                options: chartOptions
-            });
+    // Retorna uma função de limpeza para fechar as conexões ao desmontar o componente
+    return () => {
+      // Ws instances are local, so we don't have direct access here for `.close()`
+      // but the `onclose` callback will handle reconnections.
+      // For a more robust cleanup, you might store WS instances in state or refs.
+    };
+  }, []);
 
-            // Angular Chart
-            const angularCtx = document.getElementById('angularChart').getContext('2d');
-            angularChart = new Chart(angularCtx, {
-                type: 'bar',
-                data: {
-                    labels: ['BTC', 'Gold', 'DXY'],
-                    datasets: [
-                        {
-                            label: 'Ângulo de Tendência',
-                            data: [0, 0, 0],
-                            backgroundColor: ['#ff8c00', '#ffd700', '#00cc66'],
-                            borderColor: ['#ff6b47', '#ffb347', '#00ff88'],
-                            borderWidth: 2
-                        }
-                    ]
-                },
-                options: {
-                    ...chartOptions,
-                    scales: {
-                        ...chartOptions.scales,
-                        y: {
-                            ...chartOptions.scales.y,
-                            beginAtZero: true,
-                            min: -50,
-                            max: 50
-                        }
-                    }
-                }
-            });
-        }
+  // --- Efeitos de Carregamento Inicial e Intervalos ---
+  useEffect(() => {
+    const loadInitialData = async () => {
+      // Todas as chamadas de fetch REST para dados iniciais
+      await Promise.all([
+        fetchMarketData(),
+        fetchChartData(selectedPeriod),
+        fetchBotStatus(),
+        fetchSentiment(), // Será sobrescrito pelo WS se conectar
+        fetchAlerts(),
+        fetchEconomicCalendar(),
+        fetchBacktestRecommendations(),
+        fetchFinancialData()
+      ]);
+      setIsLoading(false); // Indica que a carga inicial está completa
+    };
 
-        // WebSocket Connections
-        function connectWebSockets() {
-            // Sentiment WebSocket
-            try {
-                sentimentWS = new WebSocket(`${WS_BASE_URL}/sentiment`);
-                
-                sentimentWS.onopen = () => {
-                    console.log('Sentiment WebSocket connected');
-                    updateConnectionStatus('sentiment', true);
-                };
-                
-                sentimentWS.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    updateSentimentData(data);
-                };
-                
-                sentimentWS.onclose = () => {
-                    console.log('Sentiment WebSocket disconnected');
-                    updateConnectionStatus('sentiment', false);
-                    setTimeout(() => connectWebSockets(), 5000);
-                };
-            } catch (error) {
-                console.error('Sentiment WebSocket error:', error);
-            }
+    loadInitialData(); // Carrega os dados REST iniciais
+    setupWebSockets(); // Configura e tenta conectar os WebSockets
 
-            // OHLCV WebSocket
-            try {
-                ohlcvWS = new WebSocket(`${WS_BASE_URL}/ohlcv`);
-                
-                ohlcvWS.onopen = () => {
-                    console.log('OHLCV WebSocket connected');
-                    updateConnectionStatus('ohlcv', true);
-                };
-                
-                ohlcvWS.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    updateOHLCVData(data);
-                };
-                
-                ohlcvWS.onclose = () => {
-                    console.log('OHLCV WebSocket disconnected');
-                    updateConnectionStatus('ohlcv', false);
-                    setTimeout(() => connectWebSockets(), 5000);
-                };
-            } catch (error) {
-                console.error('OHLCV WebSocket error:', error);
-            }
+    // Configura intervalos para atualizações periódicas de dados REST
+    const intervals = {
+      marketData: setInterval(fetchMarketData, 30000), // A cada 30 segundos
+      botStatus: setInterval(fetchBotStatus, 15000),    // A cada 15 segundos
+      alerts: setInterval(fetchAlerts, 60000),         // A cada 1 minuto
+      calendar: setInterval(fetchEconomicCalendar, 300000), // A cada 5 minutos
+      backtest: setInterval(fetchBacktestRecommendations, 1200000), // A cada 20 minutos
+      financial: setInterval(fetchFinancialData, 10000) // A cada 10 segundos
+    };
 
-            // RSI MACD WebSocket
-            try {
-                rsiMacdWS = new WebSocket(`${WS_BASE_URL}/rsi-macd`);
-                
-                rsiMacdWS.onopen = () => {
-                    console.log('RSI MACD WebSocket connected');
-                    updateConnectionStatus('rsi_macd', true);
-                };
-                
-                rsiMacdWS.onmessage = (event) => {
-                    const data = JSON.parse(event.data);
-                    updateRSIMACDData(data);
-                };
-                
-                rsiMacdWS.onclose = () => {
-                    console.log('RSI MACD WebSocket disconnected');
-                    updateConnectionStatus('rsi_macd', false);
-                    setTimeout(() => connectWebSockets(), 5000);
-                };
-            } catch (error) {
-                console.error('RSI MACD WebSocket error:', error);
-            }
-        }
+    // Função de limpeza para parar os intervalos ao desmontar o componente
+    return () => {
+      Object.values(intervals).forEach(clearInterval);
+    };
+  }, [
+    fetchMarketData, fetchChartData, selectedPeriod, fetchBotStatus, fetchSentiment,
+    fetchAlerts, fetchEconomicCalendar, fetchBacktestRecommendations, fetchFinancialData, setupWebSockets
+  ]);
 
-        // Load Initial Data
-        async function loadInitialData() {
-            try {
-                // Load current market data
-                const response = await fetch(`${API_BASE_URL}/current`);
-                const data = await response.json();
-                currentData = data;
-                updateMarketData(data);
-                
-                // Load other data
-                await Promise.all([
-                    loadBotStatus(),
-                    loadSentimentData(),
-                    loadEconomicCalendar(),
-                    loadAlerts(),
-                    loadAngularAnalysis(),
-                    loadPriceData(chartPeriod)
-                ]);
-                
-                updateAPIStatus(true);
-            } catch (error) {
-                console.error('Error loading initial data:', error);
-                updateAPIStatus(false);
-            }
-        }
+  // Efeito para atualizar dados do gráfico quando o período selecionado muda
+  useEffect(() => {
+    if (selectedPeriod) {
+      fetchChartData(selectedPeriod);
+    }
+  }, [selectedPeriod, fetchChartData]);
 
-        // Update Market Data
-        function updateMarketData(data) {
-            if (!data.assets) return;
+  // --- Renderização da UI ---
 
-            const { btc, gold, dxy } = data.assets;
-            
-            // Update BTC
-            document.getElementById('btcPrice').textContent = `${btc.current_price.toLocaleString()}`;
-            updateChangeIndicator('btcChange', btc.change_percent);
-            
-            // Update Gold
-            document.getElementById('goldPrice').textContent = `${gold.current_price.toLocaleString()}`;
-            updateChangeIndicator('goldChange', gold.change_percent);
-            
-            // Update DXY
-            document.getElementById('dxyPrice').textContent = dxy.current_price.toFixed(2);
-            updateChangeIndicator('dxyChange', dxy.change_percent);
-        }
+  // Tela de Carregamento Inicial
+  if (isLoading && !marketData) {
+    return (
+      <div className="min-h-screen bg-black text-white flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-xl">Carregando Dashboard de Trading...</p>
+          <p className="text-sm text-gray-400 mt-2">Conectando a {API_BASE}</p>
+          <p className="text-sm text-yellow-400 mt-2">Verifique se o seu backend está rodando no IP/Porta corretos.</p>
+        </div>
+      </div>
+    );
+  }
 
-        function updateChangeIndicator(elementId, changePercent) {
-            const element = document.getElementById(elementId);
-            const isPositive = changePercent >= 0;
-            
-            element.className = `card-change ${isPositive ? 'change-positive' : 'change-negative'}`;
-            element.innerHTML = `
-                <i class="fas fa-arrow-${isPositive ? 'up' : 'down'}"></i>
-                <span>${isPositive ? '+' : ''}${changePercent.toFixed(2)}%</span>
-            `;
-        }
+  // Dashboard Principal
+  return (
+    <div className="min-h-screen bg-black text-white font-mono">
+      {/* Header */}
+      <header className="border-b border-gray-800 bg-gray-900 sticky top-0 z-50">
+        <div className="px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <h1 className="text-2xl font-bold text-blue-400">TRADING PRO</h1>
+              <div className="flex items-center space-x-4 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500' : connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'}`}></div>
+                  <span className="text-gray-300">{connectionStatus.toUpperCase()}</span>
+                </div>
+                {/* Indicadores de Conexão WebSocket */}
+                <div className="flex items-center space-x-1" title="Sentiment WebSocket Status">
+                  {wsConnections.sentiment ? <Wifi className="w-4 h-4 text-green-500" /> : <WifiOff className="w-4 h-4 text-red-500" />}
+                  <span className="text-xs text-gray-400">SENTIMENTO</span>
+                </div>
+                <div className="flex items-center space-x-1" title="OHLCV WebSocket Status">
+                  {wsConnections.ohlcv ? <Database className="w-4 h-4 text-green-500" /> : <Database className="w-4 h-4 text-red-500" />}
+                  <span className="text-xs text-gray-400">OHLCV</span>
+                </div>
+                <div className="flex items-center space-x-1" title="Indicators WebSocket Status">
+                  {wsConnections.rsiMacd ? <Activity className="w-4 h-4 text-green-500" /> : <Activity className="w-4 h-4 text-red-500" />}
+                  <span className="text-xs text-gray-400">INDICADORES</span>
+                </div>
+              </div>
+            </div>
 
-        // Load Bot Status
-        async function loadBotStatus() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/trading-bot/status`);
-                const data = await response.json();
-                updateBotStatus(data);
-            } catch (error) {
-                console.error('Error loading bot status:', error);
-            }
-        }
+            {/* Status do Mercado (BTC, GOLD, DXY) */}
+            <div className="flex items-center space-x-6 text-sm">
+              {marketData?.assets ? Object.entries(marketData.assets).map(([key, asset]) => (
+                <div key={key} className="text-center">
+                  <div className="text-xs text-gray-400 uppercase">{asset.name}</div>
+                  <div className="font-bold">{formatCurrency(asset.current_price)}</div>
+                  <div className={`text-xs ${asset.change > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {formatPercentage(asset.change_percent)}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-sm text-yellow-400 flex items-center">
+                  <Info className="w-4 h-4 mr-1" />
+                  Carregando dados de mercado...
+                </div>
+              )}
+            </div>
 
-        function updateBotStatus(data) {
-            // Update bot balance
-            document.getElementById('botBalance').textContent = `${data.current_balance?.toLocaleString() || '0'}`;
-            document.getElementById('botCurrentBalance').textContent = `${data.current_balance?.toLocaleString() || '0'}`;
-            
-            // Update PnL
-            const pnl = data.total_pnl || 0;
-            const pnlElement = document.getElementById('botPnl');
-            pnlElement.className = `card-change ${pnl >= 0 ? 'change-positive' : 'change-negative'}`;
-            pnlElement.innerHTML = `
-                <i class="fas fa-chart-line"></i>
-                <span>PnL: ${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span>
-            `;
-            
-            // Update ROI
-            document.getElementById('botROI').innerHTML = `
-                <span>ROI: ${data.roi_percentage?.toFixed(2) || '0'}%</span>
-            `;
-            
-            // Update trades
-            document.getElementById('tradesTotal').textContent = data.total_trades || '0';
-            document.getElementById('winRate').innerHTML = `
-                <span>Win Rate: ${data.win_rate?.toFixed(1) || '0'}%</span>
-            `;
-            
-            // Update positions
-            document.getElementById('activePositions').textContent = data.active_positions_count || '0';
-            
-            // Update AI accuracy
-            document.getElementById('aiAccuracy').textContent = `${data.ai_accuracy?.toFixed(1) || '0'}%`;
-            document.getElementById('aiPredictions').innerHTML = `
-                <span>Predições: ${data.ai_predictions || '0'}</span>
-            `;
-            
-            // Update bot controls
-            const startBtn = document.getElementById('startBotBtn');
-            const stopBtn = document.getElementById('stopBotBtn');
-            const isRunning = data.status === 'running';
-            
-            startBtn.disabled = isRunning;
-            stopBtn.disabled = !isRunning;
-            
-            if (isRunning) {
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'flex';
-            } else {
-                startBtn.style.display = 'flex';
-                stopBtn.style.display = 'none';
-            }
-        }
+            {/* Bot Status & Controles (versão compacta) */}
+            <div className="flex items-center space-x-3 bg-gray-800/50 px-4 py-2 rounded-lg border border-gray-700/50">
+              {/* Status do Bot */}
+              <div className="text-center">
+                <div className="text-xs text-gray-400">BOT</div>
+                <div className={`text-sm font-bold ${
+                  botStatus?.status === 'running' ? 'text-green-400' :
+                  botStatus?.status === 'stopped' ? 'text-red-400' :
+                  'text-yellow-400'
+                }`}>
+                  {botStatus?.status?.toUpperCase() || 'OFF'}
+                </div>
+              </div>
 
-        // Load Sentiment Data
-        async function loadSentimentData() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/sentiment`);
-                const data = await response.json();
-                updateSentimentDisplay(data);
-            } catch (error) {
-                console.error('Error loading sentiment data:', error);
-            }
-        }
+              {/* Seletor de Ambiente */}
+              <div className="text-center border-l border-gray-600 pl-3">
+                <div className="text-xs text-gray-400">ENV</div>
+                <button
+                  onClick={() => setShowEnvironmentModal(true)}
+                  disabled={botStatus?.status === 'running'}
+                  className={`px-2 py-1 text-xs font-bold rounded transition-all ${
+                    environment === 'live'
+                      ? 'bg-red-600 text-white hover:bg-red-700'
+                      : 'bg-blue-600 text-white hover:bg-blue-700'
+                  } ${botStatus?.status === 'running' ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80 cursor-pointer'}`}
+                  title="Clique para mudar o ambiente"
+                >
+                  {environment === 'live' ? '💰 LIVE' : '🧪 TEST'}
+                </button>
+              </div>
 
-        function updateSentimentData(data) {
-            updateSentimentDisplay(data);
-        }
+              {/* Botões de Controle do Bot */}
+              <div className="flex space-x-1 border-l border-gray-600 pl-3">
+                <button
+                  onClick={confirmStart}
+                  disabled={botStatus?.status === 'running'}
+                  className={`p-2 rounded text-xs font-bold transition-all ${
+                    environment === 'live'
+                      ? 'bg-red-600 hover:bg-red-700 text-white'
+                      : 'bg-green-600 hover:bg-green-700 text-white'
+                  } ${botStatus?.status === 'running' ? 'bg-gray-600 cursor-not-allowed' : ''}`}
+                  title={environment === 'live' ? 'Iniciar Bot - MODO LIVE' : 'Iniciar Bot - TESTNET'}
+                >
+                  <Play className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={stopBot}
+                  disabled={botStatus?.status !== 'running'}
+                  className={`p-2 rounded text-xs font-bold transition-all ${
+                    botStatus?.status === 'running'
+                      ? 'bg-red-600 hover:bg-red-700 text-white'
+                      : 'bg-gray-600 cursor-not-allowed text-gray-400'
+                  }`}
+                  title="Parar Bot"
+                >
+                  <Pause className="w-4 h-4" />
+                </button>
+              </div>
 
-        function updateSentimentDisplay(data) {
-            if (!data) return;
-            
-            // Update BTC sentiment
-            if (data.btc) {
-                document.getElementById('btcSentimentValue').textContent = Math.round(data.btc.buyers);
-                document.getElementById('btcSentimentTrend').innerHTML = `
-                    <span>Tendência: ${data.btc.trend || 'Neutral'}</span>
-                `;
-            }
-            
-            // Update Fear & Greed
-            if (data.fear_greed_index) {
-                document.getElementById('fearGreedValue').textContent = data.fear_greed_index;
-                document.getElementById('marketMood').innerHTML = `
-                    <span>Humor: ${data.market_mood || 'Neutro'}</span>
-                `;
-            }
-            
-            // Update PAXG sentiment
-            if (data.paxg) {
-                document.getElementById('paxgSentimentValue').textContent = Math.round(data.paxg.buyers);
-                document.getElementById('paxgSentimentTrend').innerHTML = `
-                    <span>Tendência: ${data.paxg.trend || 'Neutral'}</span>
-                `;
-            }
-        }
+              {/* P&L Display */}
+              <div className="text-center border-l border-gray-600 pl-3">
+                <div className="text-xs text-gray-400">P&L</div>
+                <div className={`text-xs font-bold ${
+                  (botStatus?.total_pnl || 0) > 0 ? 'text-green-400' :
+                  (botStatus?.total_pnl || 0) < 0 ? 'text-red-400' : 'text-gray-400'
+                }`}>
+                  {botStatus ? formatCurrency(botStatus.total_pnl) : '$0.00'}
+                </div>
+              </div>
 
-        // Load Economic Calendar
-        async function loadEconomicCalendar() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/calendar`);
-                const data = await response.json();
-                updateEconomicCalendar(data);
-            } catch (error) {
-                console.error('Error loading economic calendar:', error);
-            }
-        }
+              {/* Status Geral da Conexão */}
+              <div className={`w-2 h-2 rounded-full ${
+                connectionStatus === 'connected' ? 'bg-green-400' :
+                connectionStatus === 'connecting' ? 'bg-yellow-400' :
+                'bg-red-400'
+              }`} title={`Status da API: ${connectionStatus}`}></div>
+            </div>
+          </div>
+        </div>
+      </header>
 
-        function updateEconomicCalendar(data) {
-            if (!data.summary) return;
-            
-            document.getElementById('eventsToday').textContent = data.summary.events_today || '0';
-            document.getElementById('highImpactToday').innerHTML = `
-                <span>Alto Impacto: ${data.summary.high_impact_events || '0'}</span>
-            `;
-            document.getElementById('upcomingEvents').textContent = data.summary.total_upcoming || '0';
-            
-            // Update events list
-            const eventsContainer = document.getElementById('economicEvents');
-            eventsContainer.innerHTML = '';
-            
-            if (data.upcoming_events && data.upcoming_events.length > 0) {
-                data.upcoming_events.slice(0, 10).forEach(event => {
-                    const eventElement = document.createElement('div');
-                    eventElement.className = `alert-item ${event.importance?.toLowerCase() || 'low'}`;
-                    eventElement.innerHTML = `
-                        <div class="alert-icon">
-                            <i class="fas fa-calendar"></i>
-                        </div>
-                        <div class="alert-content">
-                            <div class="alert-title">${event.name}</div>
-                            <div class="alert-message">
-                                Impacto: ${event.importance} | 
-                                Categoria: ${event.category} | 
-                                Score: ${event.impact_score}
+      <div className="flex h-screen">
+        {/* Sidebar Esquerda */}
+        <div className="w-80 border-r border-gray-800 bg-gray-900 p-4 overflow-y-auto">
+          {/* Sentimento do Mercado */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Brain className="w-4 h-4 mr-2" />
+              SENTIMENTO DO MERCADO
+            </h3>
+            {sentimentData ? (
+              <div className="space-y-3">
+                <div className="bg-gray-800 p-3 rounded">
+                  <div className="text-xs text-gray-400">Fear & Greed Index</div>
+                  <div className="text-lg font-bold text-blue-400">{sentimentData.fear_greed_index || 'N/A'}</div>
+                  <div className="text-xs text-gray-300">{sentimentData.market_mood || 'N/A'}</div>
+                </div>
+                {sentimentData.btc && (
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400">BTC Sentimento</div>
+                    <div className="flex justify-between">
+                      <span className="text-green-400">{sentimentData.btc.buyers?.toFixed(1) || '0.0'}% BULLS</span>
+                      <span className="text-red-400">{sentimentData.btc.sellers?.toFixed(1) || '0.0'}% BEARS</span>
+                    </div>
+                    <div className="text-xs text-gray-300 mt-1">{sentimentData.btc.trend || 'N/A'}</div>
+                  </div>
+                )}
+                {sentimentData.paxg && (
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400">PAXG Sentimento</div>
+                    <div className="flex justify-between">
+                      <span className="text-green-400">{sentimentData.paxg.buyers?.toFixed(1) || '0.0'}% BULLS</span>
+                      <span className="text-red-400">{sentimentData.paxg.sellers?.toFixed(1) || '0.0'}% BEARS</span>
+                    </div>
+                    <div className="text-xs text-gray-300 mt-1">{sentimentData.paxg.trend || 'N/A'}</div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-gray-500 text-sm flex items-center">
+                <Info className="w-4 h-4 mr-1" />
+                Carregando sentimento...
+              </div>
+            )}
+          </div>
+
+          {/* Calendário Econômico */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Calendar className="w-4 h-4 mr-2" />
+              EVENTOS ECONÔMICOS
+            </h3>
+            <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+              {economicCalendar.length > 0 ? economicCalendar.slice(0, 5).map((event, index) => (
+                <div key={index} className="bg-gray-800 p-2 rounded text-xs">
+                  <div className="font-bold text-blue-400">{event.name}</div>
+                  <div className="text-gray-400">{new Date(event.date).toLocaleDateString()} {event.time || ''}</div>
+                  <div className={`text-xs ${event.importance === 'HIGH' ? 'text-red-400' : event.importance === 'MEDIUM' ? 'text-yellow-400' : 'text-green-400'}`}>
+                    {event.importance} IMPACTO
+                  </div>
+                </div>
+              )) : (
+                <div className="text-gray-500 text-sm text-center">Nenhum evento futuro ou dados não disponíveis.</div>
+              )}
+            </div>
+          </div>
+
+          {/* Alertas Recentes */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Bell className="w-4 h-4 mr-2" />
+              ALERTAS
+            </h3>
+            <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+              {alerts.length > 0 ? alerts.slice(0, 5).map((alert, index) => (
+                <div key={index} className={`p-2 rounded text-xs border-l-2 ${
+                  alert.severity === 'HIGH' ? 'border-red-500 bg-red-900/20' :
+                  alert.severity === 'MEDIUM' ? 'border-yellow-500 bg-yellow-900/20' :
+                  'border-green-500 bg-green-900/20'
+                }`}>
+                  <div className="font-bold">{alert.title}</div>
+                  <div className="text-gray-400">{alert.message}</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {new Date(alert.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-gray-500 text-sm text-center">Nenhum alerta recente.</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Conteúdo Principal */}
+        <div className="flex-1 flex flex-col">
+          {/* Seletor de Período do Gráfico */}
+          <div className="border-b border-gray-800 p-4">
+            <div className="flex items-center space-x-4">
+              <span className="text-sm text-gray-400">TIMEFRAME:</span>
+              {['5m', '15m', '1h', '1d', '5d', '1mo'].map(period => ( // Adicionei 5d e 1mo conforme seu backend
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className={`px-3 py-1 text-xs rounded ${
+                    selectedPeriod === period
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  {period.toUpperCase()}
+                </button>
+              ))}
+              <div className="ml-auto text-xs text-gray-400 flex items-center space-x-4">
+                <span>Pontos de Dados: {chartData.dataPoints || 0}</span>
+                <span>Última Atualização: {chartData.lastUpdate ? new Date(chartData.lastUpdate).toLocaleTimeString() : 'N/A'}</span>
+                {chartData.fallback && (
+                  <span className="text-yellow-400 flex items-center" title="Dados do gráfico em modo de fallback (API pode ter falhado ou dados incompletos)">
+                    <AlertTriangle className="w-3 h-3 mr-1" />
+                    Modo Fallback
+                  </span>
+                )}
+                {isLoading && (
+                  <span className="text-blue-400 flex items-center">
+                    <div className="animate-spin w-3 h-3 border border-blue-400 border-t-transparent rounded-full mr-1"></div>
+                    Carregando...
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Gráficos */}
+          <div className="flex-1 p-4">
+            <div className="grid grid-cols-1 gap-4 h-full">
+              {/* Gráfico Principal de Preços */}
+              <div className="bg-gray-900 border border-gray-800 rounded p-4 h-96">
+                <h3 className="text-sm font-bold text-gray-400 mb-4">GRÁFICO DE PREÇO</h3>
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartData.combined}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <XAxis
+                      dataKey="time"
+                      type="number"
+                      scale="time"
+                      domain={['dataMin', 'dataMax']}
+                      tickFormatter={(time) => new Date(time).toLocaleTimeString()}
+                      stroke="#9CA3AF"
+                      fontSize={10}
+                    />
+                    <YAxis stroke="#9CA3AF" fontSize={10} domain={['dataMin', 'dataMax']} />
+                    <Tooltip
+                      labelFormatter={(time) => new Date(time).toLocaleString()}
+                      formatter={(value, name) => [
+                        typeof value === 'number' ? value.toFixed(2) : value,
+                        name?.toUpperCase().replace('_PRICE', '') // Formata o nome da legenda
+                      ]}
+                      contentStyle={{
+                        backgroundColor: '#1F2937',
+                        border: '1px solid #374151',
+                        borderRadius: '4px',
+                        color: '#F9FAFB'
+                      }}
+                    />
+                    {/* Linhas de Preço para BTC, ETH, GOLD - Certifique-se de que os nomes correspondem */}
+                    <Line
+                      type="monotone"
+                      dataKey="btc_price"
+                      stroke="#F59E0B"
+                      strokeWidth={2}
+                      dot={false}
+                      name="BTC"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="eth_price"
+                      stroke="#10B981"
+                      strokeWidth={2}
+                      dot={false}
+                      name="ETH"
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="gold_price"
+                      stroke="#EF4444"
+                      strokeWidth={2}
+                      dot={false}
+                      name="GOLD"
+                    />
+                     <Line
+                      type="monotone"
+                      dataKey="dxy_price"
+                      stroke="#7D3C98" // Cor para DXY
+                      strokeWidth={2}
+                      dot={false}
+                      name="DXY"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Gráficos de Volume e MACD */}
+              <div className="grid grid-cols-2 gap-4 h-64">
+                {/* Gráfico de Volume */}
+                <div className="bg-gray-900 border border-gray-800 rounded p-4">
+                  <h3 className="text-sm font-bold text-gray-400 mb-4 flex justify-between">
+                    <span>VOLUME (BTC)</span> {/* Alterei para BTC para ser mais específico */}
+                    <span className="text-xs">
+                      {chartData.combined?.length > 0 && chartData.combined.some(d => d.btc_volume !== null) ?
+                        `${chartData.combined.length} barras` :
+                        'Sem dados'
+                      }
+                    </span>
+                  </h3>
+                  <ResponsiveContainer width="100%" height="100%">
+                    {chartData.combined?.length > 0 && chartData.combined.some(d => d.btc_volume !== null) ? (
+                      <BarChart data={chartData.combined}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis
+                          dataKey="time"
+                          type="number"
+                          scale="time"
+                          domain={['dataMin', 'dataMax']}
+                          tickFormatter={(time) => new Date(time).toLocaleTimeString()}
+                          stroke="#9CA3AF"
+                          fontSize={10}
+                        />
+                        <YAxis stroke="#9CA3AF" fontSize={10} />
+                        <Tooltip
+                          labelFormatter={(time) => new Date(time).toLocaleString()}
+                          formatter={(value, name) => [
+                            typeof value === 'number' ? value.toLocaleString() : 'N/A',
+                            name?.replace('_volume', '').toUpperCase() + ' Volume'
+                          ]}
+                          contentStyle={{
+                            backgroundColor: '#1F2937',
+                            border: '1px solid #374151',
+                            borderRadius: '4px',
+                            color: '#F9FAFB'
+                          }}
+                        />
+                        {/* Apenas BTC Volume para simplificar, se quiser todos, adicione mais <Bar> */}
+                        <Bar
+                          dataKey="btc_volume"
+                          fill="#F59E0B"
+                          name="BTC Volume"
+                          radius={[2, 2, 0, 0]}
+                        />
+                      </BarChart>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        <div className="text-center">
+                          {isLoading ? 'Carregando dados de volume...' : 'Nenhum dado de volume disponível'}
+                          {chartData.fallback && (
+                            <div className="text-xs text-yellow-400 mt-2">
+                              Backend em modo fallback
                             </div>
+                          )}
                         </div>
-                        <div class="alert-time">
-                            ${new Date(event.date).toLocaleDateString('pt-BR')}
-                        </div>
-                    `;
-                    eventsContainer.appendChild(eventElement);
-                });
-            } else {
-                eventsContainer.innerHTML = `
-                    <div class="alert-item">
-                        <div class="alert-content">
-                            <div class="alert-title">Nenhum evento encontrado</div>
-                            <div class="alert-message">Não há eventos econômicos programados</div>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-
-        // Load Alerts
-        async function loadAlerts() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/alerts`);
-                const data = await response.json();
-                updateAlerts(data);
-            } catch (error) {
-                console.error('Error loading alerts:', error);
-            }
-        }
-
-        function updateAlerts(data) {
-            const alertsContainer = document.getElementById('alertsList');
-            const alertsCount = document.getElementById('alertsCount');
-            
-            alertsCount.textContent = `${data.total_alerts || 0} alertas`;
-            alertsContainer.innerHTML = '';
-            
-            if (data.alerts && data.alerts.length > 0) {
-                data.alerts.slice(0, 15).forEach(alert => {
-                    const alertElement = document.createElement('div');
-                    alertElement.className = `alert-item ${alert.severity?.toLowerCase() || 'low'}`;
-                    alertElement.innerHTML = `
-                        <div class="alert-icon">
-                            <i class="fas fa-${getAlertIcon(alert.type)}"></i>
-                        </div>
-                        <div class="alert-content">
-                            <div class="alert-title">${alert.title || alert.type}</div>
-                            <div class="alert-message">${alert.message}</div>
-                        </div>
-                        <div class="alert-time">
-                            ${new Date(alert.timestamp).toLocaleTimeString('pt-BR')}
-                        </div>
-                    `;
-                    alertsContainer.appendChild(alertElement);
-                });
-            } else {
-                alertsContainer.innerHTML = `
-                    <div class="alert-item">
-                        <div class="alert-content">
-                            <div class="alert-title">Nenhum alerta ativo</div>
-                            <div class="alert-message">Sistema monitorando mercados...</div>
-                        </div>
-                    </div>
-                `;
-            }
-        }
-
-        function getAlertIcon(type) {
-            const iconMap = {
-                'ANGULAR_PATTERN': 'compass',
-                'PRE_EVENT_ALERT': 'calendar-exclamation',
-                'MACD_CROSSOVER': 'chart-line',
-                'SYSTEM': 'cog',
-                'default': 'bell'
-            };
-            return iconMap[type] || iconMap.default;
-        }
-
-        // Load Angular Analysis
-        async function loadAngularAnalysis() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/angular`);
-                const data = await response.json();
-                updateAngularAnalysis(data);
-            } catch (error) {
-                console.error('Error loading angular analysis:', error);
-            }
-        }
-
-        function updateAngularAnalysis(data) {
-            if (!data.current_angles) return;
-            
-            const { btc, gold, dxy } = data.current_angles;
-            
-            // Update cards
-            document.getElementById('angularStrength').textContent = `${(data.analysis_summary?.average_strength * 100)?.toFixed(0) || '0'}%`;
-            document.getElementById('angularTrend').innerHTML = `
-                <span>Direção: ${data.analysis_summary?.market_direction || 'Neutro'}</span>
-            `;
-            
-            document.getElementById('patternsCount').textContent = data.patterns?.total_patterns || '0';
-            document.getElementById('patternsConfidence').innerHTML = `
-                <span>Confiança: ${((data.patterns?.confidence || 0) * 100).toFixed(0)}%</span>
-            `;
-            
-            // Update angular chart
-            if (angularChart) {
-                angularChart.data.datasets[0].data = [
-                    btc?.angle || 0,
-                    gold?.angle || 0,
-                    dxy?.angle || 0
-                ];
-                angularChart.update();
-            }
-        }
-
-        // Load Price Data
-        async function loadPriceData(period) {
-            try {
-                const response = await fetch(`${API_BASE_URL}/precos/${period}`);
-                const data = await response.json();
-                updatePriceChart(data);
-            } catch (error) {
-                console.error('Error loading price data:', error);
-            }
-        }
-
-        function updatePriceChart(data) {
-            if (!data.assets || !priceChart) return;
-            
-            const labels = data.dates || [];
-            const btcData = data.assets.btc?.price_data || [];
-            const goldData = data.assets.gold?.price_data || [];
-            const dxyData = data.assets.dxy?.price_data || [];
-            
-            priceChart.data.labels = labels;
-            priceChart.data.datasets[0].data = btcData;
-            priceChart.data.datasets[1].data = goldData;
-            priceChart.data.datasets[2].data = dxyData;
-            priceChart.update();
-        }
-
-        // Update OHLCV Data
-        function updateOHLCVData(data) {
-            if (data.type === 'ohlcv_update' && data.macd_data) {
-                updateMACDChart(data.macd_data);
-            }
-        }
-
-        function updateMACDChart(macdData) {
-            if (!macdChart || !macdData.macd || !macdData.signal) return;
-            
-            const labels = macdData.macd.map((_, index) => index);
-            
-             id="btcChange">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>0%</span>
-                        </div>
-                        <div class="realtime-indicator">
-                            <div class="realtime-dot"></div>
-                            Tempo Real
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Ouro (GOLD)</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #ffd700, #ffb347);">
-                                <i class="fas fa-coins"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="goldPrice">$0</div>
-                        <div class="card-change" id="goldChange">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>0%</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">DXY Index</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #00cc66, #00ff88);">
-                                <i class="fas fa-dollar-sign"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="dxyPrice">0</div>
-                        <div class="card-change" id="dxyChange">
-                            <i class="fas fa-arrow-up"></i>
-                            <span>0%</span>
-                        </div>
-                    </div>
-
-                    <!-- Trading Bot Status Card -->
-                    <div class="card bot-status-card">
-                        <div class="card-header">
-                            <span class="card-title">Trading Bot</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #3742fa, #5352ed);">
-                                <i class="fas fa-robot"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="botBalance">$0</div>
-                        <div class="card-change" id="botPnl">
-                            <i class="fas fa-chart-line"></i>
-                            <span>PnL: $0</span>
-                        </div>
-                        <div class="bot-controls">
-                            <button class="btn btn-success" id="startBotBtn" onclick="startBot()">
-                                <i class="fas fa-play"></i>
-                                Iniciar
-                            </button>
-                            <button class="btn btn-danger" id="stopBotBtn" onclick="stopBot()">
-                                <i class="fas fa-stop"></i>
-                                Parar
-                            </button>
-                        </div>
-                    </div>
+                      </div>
+                    )}
+                  </ResponsiveContainer>
                 </div>
 
-                <!-- Price Chart -->
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Preços em Tempo Real</h3>
-                        <div class="chart-controls">
-                            <button class="period-btn active" data-period="1d">1D</button>
-                            <button class="period-btn" data-period="5d">5D</button>
-                            <button class="period-btn" data-period="1mo">1M</button>
-                            <button class="period-btn" data-period="3mo">3M</button>
+                {/* Gráfico MACD (BTC) */}
+                <div className="bg-gray-900 border border-gray-800 rounded p-4">
+                  <h3 className="text-sm font-bold text-gray-400 mb-4 flex justify-between">
+                    <span>MACD (BTC)</span>
+                    <span className="text-xs">
+                      {chartData.combined?.some(d => d.btc_macd !== null) ?
+                        'Linha de Sinal + Histograma' :
+                        'Calculando...'
+                      }
+                    </span>
+                  </h3>
+                  <ResponsiveContainer width="100%" height="100%">
+                    {chartData.combined?.length > 0 && chartData.combined.some(d => d.btc_macd !== null) ? (
+                      <ComposedChart data={chartData.combined}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                        <XAxis
+                          dataKey="time"
+                          type="number"
+                          scale="time"
+                          domain={['dataMin', 'dataMax']}
+                          tickFormatter={(time) => new Date(time).toLocaleTimeString()}
+                          stroke="#9CA3AF"
+                          fontSize={10}
+                        />
+                        <YAxis stroke="#9CA3AF" fontSize={10} />
+                        <Tooltip
+                          labelFormatter={(time) => new Date(time).toLocaleString()}
+                          formatter={(value, name) => [
+                            typeof value === 'number' ? value.toFixed(4) : 'N/A',
+                            name === 'btc_macd' ? 'Linha MACD' :
+                            name === 'btc_macd_signal' ? 'Linha de Sinal' :
+                            name === 'btc_macd_hist' ? 'Histograma' : name
+                          ]}
+                          contentStyle={{
+                            backgroundColor: '#1F2937',
+                            border: '1px solid #374151',
+                            borderRadius: '4px',
+                            color: '#F9FAFB'
+                          }}
+                        />
+                        {/* Linha MACD */}
+                        <Line
+                          type="monotone"
+                          dataKey="btc_macd"
+                          stroke="#3B82F6"
+                          strokeWidth={2}
+                          dot={false}
+                          name="MACD"
+                        />
+                        {/* Linha de Sinal */}
+                        <Line
+                          type="monotone"
+                          dataKey="btc_macd_signal"
+                          stroke="#EF4444"
+                          strokeWidth={2}
+                          dot={false}
+                          name="Sinal"
+                        />
+                        {/* Histograma */}
+                        {chartData.combined.some(d => d.btc_macd_hist !== null) && (
+                          <Bar
+                            dataKey="btc_macd_hist"
+                            fill="#10B981"
+                            name="Histograma"
+                            opacity={0.6}
+                          />
+                        )}
+                      </ComposedChart>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-gray-500">
+                        <div className="text-center">
+                          {isLoading ? 'Carregando dados MACD...' : 'Cálculo do MACD requer mais dados'}
+                          {chartData.fallback && (
+                            <div className="text-xs text-yellow-400 mt-2">
+                              Backend processando indicadores MACD
+                            </div>
+                          )}
+                          <div className="text-xs text-gray-400 mt-1">
+                            Tente mudar para um período de tempo maior (1h, 1d)
+                          </div>
                         </div>
-                    </div>
-                    <div class="chart-wrapper">
-                        <canvas id="priceChart"></canvas>
-                    </div>
+                      </div>
+                    )}
+                  </ResponsiveContainer>
                 </div>
-            </section>
+              </div>
+            </div>
+          </div>
+        </div>
 
-            <!-- Markets Section -->
-            <section id="markets" class="content-section">
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Análise MACD & RSI</h3>
-                        <div class="realtime-indicator">
-                            <div class="realtime-dot"></div>
-                            WebSocket Ativo
+        {/* Sidebar Direita */}
+        <div className="w-80 border-l border-gray-800 bg-gray-900 p-4 overflow-y-auto">
+          {/* Seção de Monitoramento Financeiro */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <DollarSign className="w-4 h-4 mr-2" />
+              MONITORAMENTO FINANCEIRO
+            </h3>
+
+            {/* Abas de Ambiente */}
+            <div className="flex mb-4 bg-gray-800 rounded p-1">
+              <button
+                onClick={() => setSelectedFinancialTab('testnet')}
+                className={`flex-1 py-2 px-3 text-xs font-bold rounded transition-all ${
+                  selectedFinancialTab === 'testnet'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                🧪 TESTNET
+              </button>
+              <button
+                onClick={() => setSelectedFinancialTab('live')}
+                className={`flex-1 py-2 px-3 text-xs font-bold rounded transition-all ${
+                  selectedFinancialTab === 'live'
+                    ? 'bg-red-600 text-white'
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                💰 LIVE
+              </button>
+            </div>
+
+            {/* Exibição de Dados Financeiros */}
+            {(() => {
+              const currentFinData = financialData[selectedFinancialTab];
+
+              return (
+                <div className="space-y-3">
+                  {/* Saldo e P&L */}
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div>
+                        <div className="text-gray-400">Saldo Atual</div>
+                        <div className="text-lg font-bold text-blue-400">
+                          {formatCurrency(currentFinData.balance)}
                         </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">Saldo Inicial</div>
+                        <div className="text-sm text-gray-300">
+                          {formatCurrency(currentFinData.startBalance)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">P&L Total</div>
+                        <div className={`text-lg font-bold ${formatPnL(currentFinData.totalPnL).colorClass}`}>
+                          {formatPnL(currentFinData.totalPnL).formatted}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">P&L Diário</div>
+                        <div className={`text-sm font-bold ${formatPnL(currentFinData.dailyPnL).colorClass}`}>
+                          {formatPnL(currentFinData.dailyPnL).formatted}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">ROI</div>
+                        <div className={`text-sm font-bold ${formatPnL(currentFinData.roiPercent).colorClass}`}>
+                          {formatPnL(currentFinData.roiPercent, true).formatted}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-gray-400">Drawdown Máx</div>
+                        <div className="text-sm font-bold text-red-400">
+                          -{currentFinData.maxDrawdown.toFixed(2)}%
+                        </div>
+                      </div>
                     </div>
-                    <div class="chart-wrapper">
-                        <canvas id="macdChart"></canvas>
+                  </div>
+
+                  {/* Estatísticas de Trading */}
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400 mb-2">ESTATÍSTICAS DE TRADING</div>
+                    <div className="grid grid-cols-3 gap-2 text-xs">
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-blue-400">
+                          {currentFinData.totalTrades}
+                        </div>
+                        <div className="text-gray-400">Total Trades</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-green-400">
+                          {currentFinData.winningTrades}
+                        </div>
+                        <div className="text-gray-400">Vencedores</div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-lg font-bold text-red-400">
+                          {currentFinData.totalTrades - currentFinData.winningTrades}
+                        </div>
+                        <div className="text-gray-400">Perdedores</div>
+                      </div>
                     </div>
+                    <div className="mt-2 pt-2 border-t border-gray-700">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">Taxa de Vitória:</span>
+                        <span className={`font-bold ${
+                          currentFinData.winRate > 60 ? 'text-green-400' :
+                          currentFinData.winRate > 40 ? 'text-yellow-400' : 'text-red-400'
+                        }`}>
+                          {currentFinData.winRate.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs mt-1">
+                        <span className="text-gray-400">Última Atualização:</span>
+                        <span className="text-gray-300">
+                          {currentFinData.lastUpdate ?
+                            new Date(currentFinData.lastUpdate).toLocaleTimeString() :
+                            'Nunca'
+                          }
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Gráfico de Performance (simples) */}
+                  <div className="bg-gray-800 p-3 rounded">
+                    <div className="text-xs text-gray-400 mb-2">VISÃO GERAL DA PERFORMANCE</div>
+                    <div className="h-20 flex items-end space-x-1">
+                      {/* Dados reais do backtest ou simulados para o gráfico */}
+                      {/* Para uma visualização real, você precisaria de um endpoint de histórico de saldo */}
+                      {Array.from({length: 7}, (_, i) => {
+                          const randomPnl = (Math.random() * 20 - 10); // PnL aleatório entre -10 e 10
+                          const height = Math.abs(randomPnl) * 3 + 10; // Escala para o gráfico
+                          const isPositive = randomPnl > 0;
+                          return (
+                            <div
+                              key={i}
+                              className={`flex-1 rounded-t ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                              style={{ height: `${height}%` }}
+                              title={`Dia ${i + 1}: ${formatPnL(randomPnl).formatted}`}
+                            />
+                          );
+                      })}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1 text-center">
+                      Performance dos últimos 7 dias (simulado)
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
+          {/* Trades Recentes */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Activity className="w-4 h-4 mr-2" />
+              TRADES RECENTES
+            </h3>
+            <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar">
+              {financialData.recentTrades.length > 0 ? financialData.recentTrades.map((trade, index) => (
+                <div key={index} className="bg-gray-800 p-2 rounded text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="font-bold text-blue-400">
+                      {trade.symbol || 'N/A'}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      (trade.side || trade.action) === 'buy' || (trade.side || trade.action) === 'BUY'
+                        ? 'bg-green-600' : 'bg-red-600'
+                    }`}>
+                      {(trade.side || trade.action || 'N/A').toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 mt-1">
+                    <div>
+                      <div className="text-gray-400">Entrada</div>
+                      <div className="font-bold">
+                        {formatCurrency(trade.entry_price || trade.signal?.entry_price || 0)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">P&L</div>
+                      <div className={`font-bold ${
+                        (trade.pnl || 0) > 0 ? 'text-green-400' :
+                        (trade.pnl || 0) < 0 ? 'text-red-400' : 'text-gray-400'
+                      }`}>
+                        {formatCurrency(trade.pnl || 0)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {trade.timestamp ? new Date(trade.timestamp).toLocaleTimeString() : 'Recentemente'}
+                  </div>
+                </div>
+              )) : (
+                <div className="text-gray-500 text-xs text-center py-4">
+                  Nenhum trade recente.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Performance do Bot AI (Detalhes) */}
+          {botStatus && (
+            <div className="mb-6">
+              <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+                <Brain className="w-4 h-4 mr-2" />
+                PERFORMANCE DO BOT AI
+              </h3>
+              <div className="space-y-3">
+                <div className="bg-gray-800 p-3 rounded">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <div className="text-gray-400">Acurácia da IA</div>
+                      <div className="font-bold text-purple-400">{botStatus.ai_accuracy?.toFixed(2) || '0.00'}%</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">Amostras Treino</div>
+                      <div className="font-bold text-blue-400">{botStatus.training_samples || 0}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">Modelo Acurácia</div>
+                      <div className="font-bold text-green-400">{botStatus.ml_model_accuracy?.toFixed(3) || '0.000'}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">Predições IA</div>
+                      <div className="font-bold">{botStatus.ai_predictions || 0}</div>
+                    </div>
+                  </div>
                 </div>
 
-                <div class="cards-grid">
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">RSI Bitcoin</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #ff6b6b, #ee5a52);">
-                                <i class="fas fa-wave-square"></i>
+                {botStatus.active_positions && botStatus.active_positions.length > 0 && (
+                  <div>
+                    <div className="text-xs text-gray-400 mb-2">POSIÇÕES ATIVAS</div>
+                    {botStatus.active_positions.map((position, index) => (
+                      <div key={index} className="bg-gray-800 p-2 rounded mb-2 text-xs">
+                        <div className="flex justify-between items-center">
+                          <span className="font-bold text-blue-400">{position.symbol}</span>
+                          <span className={`px-2 py-1 rounded text-xs ${
+                            position.side === 'buy' ? 'bg-green-600' : 'bg-red-600'
+                          }`}>
+                            {position.side.toUpperCase()}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 mt-1">
+                          <div>
+                            <div className="text-gray-400">Entrada</div>
+                            <div className="font-bold">{formatCurrency(position.entry_price)}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-400">Atual</div>
+                            <div className="font-bold">{formatCurrency(position.current_price)}</div>
+                          </div>
+                          <div>
+                            <div className="text-gray-400">P&L</div>
+                            <div className={`font-bold ${position.pnl > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                              {formatCurrency(position.pnl)}
                             </div>
+                          </div>
+                          <div>
+                            <div className="text-gray-400">Conf. IA</div>
+                            <div className="font-bold text-purple-400">{(position.ai_prediction * 100).toFixed(1)}%</div>
+                          </div>
                         </div>
-                        <div class="card-value" id="rsiValue">50</div>
-                        <div class="card-change" id="rsiStatus">
-                            <span>Neutro</span>
-                        </div>
-                    </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">MACD Signal</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #4834d4, #686de0);">
-                                <i class="fas fa-chart-line"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="macdSignal">0.00</div>
-                        <div class="card-change" id="macdStatus">
-                            <span>Aguardando...</span>
-                        </div>
+          {/* Recomendações de Backtest */}
+          <div className="mb-6">
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <BarChart3 className="w-4 h-4 mr-2" />
+              SINAIS DE BACKTEST
+            </h3>
+            <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+              {backtestRecommendations.length > 0 ? backtestRecommendations.slice(0, 5).map((rec, index) => (
+                <div key={index} className="bg-gray-800 p-3 rounded text-xs">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-bold text-blue-400">{rec.pattern_name}</span>
+                    <span className={`px-2 py-1 rounded text-xs ${
+                      rec.trade_type === 'LONG' ? 'bg-green-600' : 'bg-red-600'
+                    }`}>
+                      {rec.trade_type}
+                    </span>
+                  </div>
+                  <div className="text-gray-300 mb-2">{rec.description}</div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-gray-400">Confiança</div>
+                      <div className="font-bold text-green-400">{(rec.confidence * 100).toFixed(1)}%</div>
                     </div>
+                    <div>
+                      <div className="text-gray-400">Taxa de Sucesso</div>
+                      <div className="font-bold">{(rec.success_rate * 100).toFixed(1)}%</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">Retorno Esp.</div>
+                      <div className="font-bold text-blue-400">{rec.expected_return}</div>
+                    </div>
+                    <div>
+                      <div className="text-gray-400">Drawdown Máx</div>
+                      <div className="font-bold text-red-400">{rec.max_drawdown}</div>
+                    </div>
+                  </div>
+                  {rec.backtest_details && (
+                    <div className="mt-2 pt-2 border-t border-gray-700">
+                      <div className="text-gray-400">Backtest: {rec.backtest_details.total_trades} trades, {rec.backtest_details.win_rate}</div>
+                    </div>
+                  )}
                 </div>
-            </section>
-
-            <!-- Trading Bot Section -->
-            <section id="bot" class="content-section">
-                <div class="cards-grid">
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Saldo Atual</span>
-                            <div class="card-icon" style="background: var(--gradient-success);">
-                                <i class="fas fa-wallet"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="botCurrentBalance">$0</div>
-                        <div class="card-change" id="botROI">
-                            <span>ROI: 0%</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Trades Hoje</span>
-                            <div class="card-icon" style="background: var(--gradient-primary);">
-                                <i class="fas fa-exchange-alt"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="tradesTotal">0</div>
-                        <div class="card-change" id="winRate">
-                            <span>Win Rate: 0%</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">Posições Ativas</span>
-                            <div class="card-icon" style="background: var(--gradient-warning);">
-                                <i class="fas fa-chart-area"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="activePositions">0</div>
-                        <div class="card-change" id="positionsPnl">
-                            <span>PnL Total: $0</span>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <span class="card-title">IA Accuracy</span>
-                            <div class="card-icon" style="background: linear-gradient(135deg, #ff9ff3, #f368e0);">
-                                <i class="fas fa-brain"></i>
-                            </div>
-                        </div>
-                        <div class="card-value" id="aiAccuracy">0%</div>
-                        <div class="card-change" id="aiPredictions">
-                            <span>Predições: 0</span>
-                        </div>
-                    </div>
+              )) : (
+                <div className="text-gray-500 text-xs text-center py-4">
+                  Nenhuma recomendação de backtest disponível.
                 </div>
+              )}
+            </div>
+          </div>
 
-                <!-- Bot Performance Chart -->
-                <div class="chart-container">
-                    <div class="chart-header">
-                        <h3 class="chart-title">Performance do Bot</h3>
+          {/* Status do Sistema */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-400 mb-3 flex items-center">
+              <Settings className="w-4 h-4 mr-2" />
+              STATUS DO SISTEMA
+            </h3>
+            <div className="space-y-2">
+              <div className="bg-gray-800 p-3 rounded text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <div className="text-gray-400">Status da API</div>
+                    <div className={`font-bold ${connectionStatus === 'connected' ? 'text-green-400' : 'text-red-400'}`}>
+                      {connectionStatus.toUpperCase()}
                     </div>
-                    <div class="chart-wrapper">
-                        <canvas id="botPerformanceChart"></canvas>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Fonte de Dados</div>
+                    <div className="font-bold text-blue-400">Gate.io + YFinance</div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">WebSockets</div>
+                    <div className="font-bold">
+                      {Object.values(wsConnections).filter(Boolean).length}/3 ATIVOS
                     </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-400">Ambiente</div>
+                    <div className={`font-bold ${environment === 'live' ? 'text-red-400' : 'text-blue-400'}`}>
+                      {environment.toUpperCase()}
+                    </div>
+                  </div>
                 </div>
-            </section>
+              </div>
 
-            <!-- Sentiment Section -->
-            <section id="sentiment" class="content-section">
-                <div class="sentiment-grid">
-                    <div class="sentiment-card">
-                        <h3>Bitcoin Sentiment</h3>
-                        <div class="sentiment-gauge">
-                            <div class="gauge-circle">
-                                <div class="gauge-inner">
-                                    <div class="gauge-value" id="btcSentimentValue">50</div>
-                                    <div class="gauge-label">Buyers %</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card-change"
+              {marketData?.system_health && (
+                <div className="bg-gray-800 p-3 rounded text-xs">
+                  <div className="text-gray-400 mb-2">Atualização dos Dados</div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between">
+                      <span>Dados de Preço:</span>
+                      <span className="text-green-400">LIVE</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Sentimento:</span>
+                      <span className={wsConnections.sentiment ? 'text-green-400' : 'text-red-400'}>
+                        {wsConnections.sentiment ? 'LIVE' : 'OFFLINE'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>OHLCV:</span>
+                      <span className={wsConnections.ohlcv ? 'text-green-400' : 'text-red-400'}>
+                        {wsConnections.ohlcv ? 'LIVE' : 'OFFLINE'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Indicadores:</span>
+                      <span className={wsConnections.rsiMacd ? 'text-green-400' : 'text-red-400'}>
+                        {wsConnections.rsiMacd ? 'LIVE' : 'OFFLINE'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500 text-center pt-4">
+                Trading Dashboard Pro v6.0
+                <br />
+                Backend: {API_BASE}
+                <br />
+                {new Date().toLocaleString()}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal de Seleção de Ambiente */}
+      {showEnvironmentModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-bold text-white mb-4">Selecionar Ambiente de Trading</h3>
+
+            <div className="space-y-4">
+              {/* Opção Testnet */}
+              <div
+                onClick={() => handleEnvironmentChange('testnet')}
+                className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                  environment === 'testnet'
+                    ? 'border-blue-500 bg-blue-900/20'
+                    : 'border-gray-600 hover:border-blue-400'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-blue-400 font-bold">🧪 TESTNET</div>
+                    <div className="text-sm text-gray-300">Trading de demonstração com dinheiro virtual</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      ✅ Seguro para testes<br />
+                      ✅ Sem risco de dinheiro real<br />
+                      ✅ Funcionalidade completa
+                    </div>
+                  </div>
+                  <div className={`w-4 h-4 rounded-full border-2 ${
+                    environment === 'testnet' ? 'bg-blue-500 border-blue-500' : 'border-gray-400'
+                  }`}></div>
+                </div>
+              </div>
+
+              {/* Opção Live */}
+              <div
+                onClick={() => handleEnvironmentChange('live')}
+                className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+                  environment === 'live'
+                    ? 'border-red-500 bg-red-900/20'
+                    : 'border-gray-600 hover:border-red-400'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-red-400 font-bold">💰 LIVE TRADING</div>
+                    <div className="text-sm text-gray-300">Trading com dinheiro real</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      ⚠️ Usa dinheiro real<br />
+                      ⚠️ Lucros e perdas reais<br />
+                      ⚠️ Requer conta capitalizada
+                    </div>
+                  </div>
+                  <div className={`w-4 h-4 rounded-full border-2 ${
+                    environment === 'live' ? 'bg-red-500 border-red-500' : 'border-gray-400'
+                  }`}></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={() => setShowEnvironmentModal(false)}
+                className="px-4 py-2 text-gray-400 hover:text-white transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => setShowEnvironmentModal(false)} // A seleção já é feita no onClick do div
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default BloombergDashboard;
