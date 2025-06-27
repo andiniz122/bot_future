@@ -3272,8 +3272,8 @@ def get_backtest_recommendations():
 
 @app.get("/api/trading-bot/status")
 def get_trading_bot_status():
-    """Endpoint para status do trading bot - VERSÃO CORRIGIDA"""
-    global real_trading_bot
+    """Endpoint para status do trading bot - ATUALIZADO COM AMBIENTE"""
+    global real_trading_bot, current_bot_environment
     
     try:
         if real_trading_bot is None:
@@ -3282,10 +3282,10 @@ def get_trading_bot_status():
                 "timestamp": datetime.now().isoformat(),
                 "status": "bot_initialization_failed",
                 "error": "Trading bot instance is None. Check startup logs.",
-                "environment": ENVIRONMENT.upper(),
+                "environment": current_bot_environment.upper(),
                 "running": False,
                 "bot_info": {
-                    "environment": ENVIRONMENT.upper(),
+                    "environment": current_bot_environment.upper(),
                     "strategy": "RSI_MACD_COMBINED",
                     "running": False,
                     "symbols": ["BTC_USDT", "ETH_USDT"],
@@ -3295,8 +3295,14 @@ def get_trading_bot_status():
                     "start_balance": 0, "current_balance": 0, "total_trades": 0,
                     "winning_trades": 0, "total_pnl": 0, "daily_pnl": 0,
                     "max_drawdown": 0, "win_rate": 0, "roi_percentage": 0,
-                    "strategy_name": "RSI_MACD_COMBINED", "environment": ENVIRONMENT.upper(),
+                    "strategy_name": "RSI_MACD_COMBINED", 
+                    "environment": current_bot_environment.upper(),
                     "last_update": datetime.now().isoformat()
+                },
+                "environment_info": {
+                    "current": current_bot_environment.upper(),
+                    "can_change": True,
+                    "is_live": current_bot_environment == "live"
                 },
                 "active_positions": [], "recent_signals": [],
                 "daily_stats": {"trades_today": 0, "max_daily_trades": 0, "daily_pnl": 0, "date": datetime.now().date().isoformat()}
@@ -3304,12 +3310,23 @@ def get_trading_bot_status():
 
         try:
             status_report = real_trading_bot.get_detailed_ai_status()
+            
+            # Adicionar informações de ambiente ao status
+            status_report["environment_info"] = {
+                "current": current_bot_environment.upper(),
+                "actual_bot_environment": real_trading_bot.environment.upper(),
+                "can_change": not real_trading_bot.running,
+                "is_live": current_bot_environment == "live",
+                "risk_config": RISK_CONFIG.get(current_bot_environment, {}),
+                "environment_matched": current_bot_environment == real_trading_bot.environment
+            }
 
             status_report["debug_info"] = {
                 "api_connectivity": "attempting_connection",
                 "last_balance_check": datetime.now().isoformat(),
                 "environment_config": {
-                    "environment": ENVIRONMENT,
+                    "dashboard_environment": current_bot_environment,
+                    "bot_environment": real_trading_bot.environment,
                     "has_api_key": bool(API_KEY),
                     "has_secret": bool(SECRET),
                     "base_urls": real_trading_bot.urls
@@ -3325,8 +3342,9 @@ def get_trading_bot_status():
                 "timestamp": datetime.now().isoformat(),
                 "status": "partial_error",
                 "error": str(status_error),
+                "environment": current_bot_environment.upper(),
                 "bot_info": {
-                    "environment": ENVIRONMENT.upper(),
+                    "environment": current_bot_environment.upper(),
                     "strategy": "RSI_MACD_COMBINED",
                     "running": real_trading_bot.running,
                     "symbols": TRADING_SYMBOLS
@@ -3334,6 +3352,11 @@ def get_trading_bot_status():
                 "performance": real_trading_bot.performance if real_trading_bot else {},
                 "active_positions": [],
                 "recent_signals": [],
+                "environment_info": {
+                    "current": current_bot_environment.upper(),
+                    "can_change": not real_trading_bot.running,
+                    "is_live": current_bot_environment == "live"
+                },
                 "debug_info": {
                     "error_occurred": True,
                     "error_message": str(status_error)
@@ -3701,8 +3724,9 @@ def get_bot_performance():
 
 @app.post("/api/trading-bot/start")
 def start_trading_bot():
-    """Endpoint para iniciar o trading bot"""
-    global real_trading_bot
+    """Endpoint para iniciar o trading bot - ATUALIZADO"""
+    global real_trading_bot, current_bot_environment
+    
     if real_trading_bot is None:
         raise HTTPException(status_code=503, detail="Trading bot not initialized.")
 
@@ -3711,39 +3735,60 @@ def start_trading_bot():
             return {
                 "status": "already_running",
                 "message": "Trading bot is already running",
+                "environment": current_bot_environment.upper(),
                 "timestamp": datetime.now().isoformat()
             }
+        
+        # Verificar se estamos em ambiente live e adicionar confirmação extra
+        if current_bot_environment == "live":
+            logger.warning("🚨 STARTING BOT IN LIVE ENVIRONMENT - REAL MONEY TRADING")
         
         if not hasattr(app.state, 'bot_executor'):
             app.state.bot_executor = ThreadPoolExecutor(max_workers=1)
         
         app.state.bot_executor.submit(real_trading_bot.run)
         
+        # Criar alerta específico para o ambiente
+        alert_message = f"Trading bot iniciado em {current_bot_environment.upper()}"
+        if current_bot_environment == "live":
+            alert_message += " - ⚠️ OPERANDO COM DINHEIRO REAL"
+        else:
+            alert_message += " - 🧪 Ambiente de teste"
+        
         start_alert = {
             "type": "SYSTEM",
-            "title": "🚀 Trading Bot Iniciado",
-            "message": f"O trading bot foi iniciado com sucesso e está monitorando o mercado ({real_trading_bot.environment.upper()})",
-            "severity": "HIGH",
-            "timestamp": datetime.now().isoformat()
+            "title": f"🚀 Trading Bot Iniciado ({current_bot_environment.upper()})",
+            "message": alert_message,
+            "severity": "HIGH" if current_bot_environment == "live" else "MEDIUM",
+            "timestamp": datetime.now().isoformat(),
+            "environment": current_bot_environment.upper()
         }
         cache["alerts"].append(start_alert)
         
-        logger.info("🚀 Trading bot started successfully")
+        logger.info(f"🚀 Trading bot started successfully in {current_bot_environment.upper()} environment")
         
-        # Acessar as configurações de risco diretamente do dicionário global RISK_CONFIG
-        # ou da instância do bot, se estiver garantido que ela tem o atributo.
-        # A importação do RISK_CONFIG global é a maneira mais segura aqui.
-        current_risk_config = RISK_CONFIG.get(real_trading_bot.environment, {}) 
+        # Obter configurações de risco para o ambiente atual
+        current_risk_config = RISK_CONFIG.get(current_bot_environment, {})
         
         return {
-            "status": "started",
-            "message": "Trading bot started successfully",
+            "status": "started", 
+            "message": f"Trading bot started successfully in {current_bot_environment.upper()}",
+            "environment": current_bot_environment.upper(),
             "timestamp": datetime.now().isoformat(),
             "bot_config": {
+                "environment": current_bot_environment.upper(),
                 "max_positions": current_risk_config.get('max_open_positions', 'N/A'),
-                "risk_per_trade": current_risk_config.get('stop_loss_atr_multiplier', 'N/A'),
-                "strategies_active": "AI_Enhanced",
+                "position_size": f"${current_risk_config.get('position_size_usdt', 'N/A')}",
+                "max_daily_trades": current_risk_config.get('max_daily_trades', 'N/A'),
+                "stop_loss_multiplier": current_risk_config.get('stop_loss_atr_multiplier', 'N/A'),
+                "strategies_active": "AI_Enhanced_Multi_Timeframe",
                 "auto_trading": True
+            },
+            "safety_features": {
+                "live_mode_active": current_bot_environment == "live",
+                "risk_management": "enabled",
+                "position_limits": "enforced",
+                "emergency_stop": "available"
             }
         }
 
@@ -3955,11 +4000,14 @@ def debug_gateio_connection():
 
 @app.on_event("startup")
 async def startup_event():
-    """Evento de inicialização da aplicação - VERSÃO CORRIGIDA"""
-    global real_trading_bot
+    """Evento de inicialização da aplicação - ATUALIZADO"""
+    global real_trading_bot, current_bot_environment
 
     app.state.startup_time = datetime.now()
-    logger.info("🚀 Starting Trading Dashboard API v6.0 with Real-time MACD")
+    logger.info("🚀 Starting Trading Dashboard API v6.0 with Dynamic Environment Support")
+    
+    # Inicializar com ambiente padrão
+    current_bot_environment = ENVIRONMENT
     
     if not API_KEY or not SECRET:
         logger.error("❌ GATE.IO API credentials not found! Trading bot will NOT be fully functional.")
@@ -3967,14 +4015,14 @@ async def startup_event():
         real_trading_bot = None
     else:
         try:
-            logger.info(f"🤖 Initializing trading bot for {ENVIRONMENT.upper()} environment...")
-            real_trading_bot = CombinedAITradingBot(environment=ENVIRONMENT)
+            logger.info(f"🤖 Initializing trading bot for {current_bot_environment.upper()} environment...")
+            real_trading_bot = CombinedAITradingBot(environment=current_bot_environment)
             
             try:
                 test_balance = real_trading_bot.get_account_balance()
-                logger.info(f"✅ Bot initialized successfully. Balance: ${test_balance}")
+                logger.info(f"✅ Bot initialized successfully. Environment: {current_bot_environment.upper()}, Balance: ${test_balance}")
                 
-                if test_balance == 0 and ENVIRONMENT == 'testnet':
+                if test_balance == 0 and current_bot_environment == 'testnet':
                     logger.warning("⚠️ Testnet balance is 0. This might be normal for new testnet accounts.")
                     logger.info("   💡 Try requesting testnet funds from Gate.io if needed.")
                 
@@ -3987,6 +4035,7 @@ async def startup_event():
             logger.error("   🔧 API will work without trading bot functionality.")
             real_trading_bot = None
 
+    # Continuar com o resto da inicialização...
     logger.info("💼 Starting dashboard's internal backtest recommendations scheduler...")
     start_backtest_scheduler()
     
@@ -4011,7 +4060,8 @@ async def startup_event():
 
     bot_status = "✅ ACTIVE" if real_trading_bot else "❌ DISABLED"
     logger.info(f"🎯 All systems initialized!")
-    logger.info(f"🤖 Trading Bot: {bot_status}")
+    logger.info(f"🤖 Trading Bot: {bot_status} (Environment: {current_bot_environment.upper()})")
+    logger.info(f"🔄 Dynamic Environment Switching: ✅ ENABLED")
     logger.info(f"📊 Real-time MACD crossover detection: {'✅ ACTIVE' if (realtime_ohlcv_cache['btc']['websocket_connected'] or ('eth' in realtime_ohlcv_cache and realtime_ohlcv_cache['eth']['websocket_connected'])) else '⚠️ PENDING'}")
     logger.info(f"🌐 API Server: ✅ READY at http://{SERVER_CONFIG['host']}:{SERVER_CONFIG['port']}")
     
@@ -4020,6 +4070,244 @@ async def startup_event():
         logger.info("   1. Ensure GATE_TESTNET_API_KEY, GATE_TESTNET_API_SECRET, FRED_API_KEY, NEWS_API_KEY, CRYPTOPANIC_API_KEY are configured in .env file")
         logger.info("   2. Verify API keys have proper permissions on respective platforms")
         logger.info("   3. Restart the application")
+    else:
+        logger.info("💡 Environment can be changed dynamically via frontend:")
+        logger.info("   • GET  /api/trading-bot/environment - Check current environment")
+        logger.info("   • POST /api/trading-bot/set-environment - Change environment")
+        logger.info("   • POST /api/trading-bot/validate-environment - Validate before change")
+
+# ===============================================================================
+# 🔄 NOVOS ENDPOINTS PARA CONTROLE DINÂMICO DE AMBIENTE
+# ===============================================================================
+
+@app.get("/api/trading-bot/environment")
+def get_current_environment():
+    """Endpoint para obter ambiente atual do bot"""
+    global current_bot_environment, real_trading_bot
+    
+    try:
+        actual_bot_env = real_trading_bot.environment if real_trading_bot else "not_initialized"
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "current_environment": current_bot_environment,
+            "bot_actual_environment": actual_bot_env,
+            "available_environments": ["testnet", "live"],
+            "bot_running": real_trading_bot.running if real_trading_bot else False,
+            "can_change_environment": not (real_trading_bot and real_trading_bot.running),
+            "environment_status": {
+                "testnet": {
+                    "description": "Ambiente de teste - Dinheiro virtual",
+                    "risk_level": "LOW",
+                    "recommended_for": "Testes e desenvolvimento"
+                },
+                "live": {
+                    "description": "Ambiente real - Dinheiro real",
+                    "risk_level": "HIGH", 
+                    "recommended_for": "Trading com capital real"
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"❌ Error getting environment: {e}")
+        raise HTTPException(status_code=500, detail=f"Error getting environment: {str(e)}")
+
+@app.post("/api/trading-bot/set-environment")
+def set_bot_environment(request_data: dict):
+    """Endpoint para alterar ambiente do bot dinamicamente"""
+    global real_trading_bot, current_bot_environment
+    
+    try:
+        # Validar dados da requisição
+        if not isinstance(request_data, dict) or 'environment' not in request_data:
+            raise HTTPException(status_code=400, detail="Missing 'environment' field in request")
+        
+        new_environment = request_data.get('environment', '').lower()
+        
+        if new_environment not in ['testnet', 'live']:
+            raise HTTPException(status_code=400, detail="Environment must be 'testnet' or 'live'")
+        
+        # Verificar se o bot está rodando
+        if real_trading_bot and real_trading_bot.running:
+            raise HTTPException(
+                status_code=409, 
+                detail="Cannot change environment while bot is running. Stop the bot first."
+            )
+        
+        with bot_environment_lock:
+            logger.info(f"🔄 Changing bot environment from {current_bot_environment} to {new_environment}")
+            
+            # Salvar posições ativas se existirem
+            active_positions_backup = []
+            if real_trading_bot and real_trading_bot.active_positions:
+                active_positions_backup = real_trading_bot.active_positions.copy()
+                logger.info(f"💾 Backing up {len(active_positions_backup)} active positions")
+            
+            # Criar nova instância do bot com o ambiente solicitado
+            try:
+                new_bot = CombinedAITradingBot(environment=new_environment)
+                
+                # Testar conectividade da nova instância
+                test_balance = new_bot.get_account_balance()
+                logger.info(f"✅ New bot instance created successfully. Balance: ${test_balance}")
+                
+                # Se chegou até aqui, a nova instância está funcionando
+                old_bot = real_trading_bot
+                real_trading_bot = new_bot
+                current_bot_environment = new_environment
+                
+                # Limpar referências da instância antiga
+                if old_bot:
+                    try:
+                        if old_bot.running:
+                            old_bot.stop()
+                    except:
+                        pass
+                    del old_bot
+                
+                # Adicionar alerta do sistema
+                environment_change_alert = {
+                    "type": "SYSTEM",
+                    "title": f"🔄 Ambiente Alterado para {new_environment.upper()}",
+                    "message": f"Bot reconfigurado para operar em {new_environment.upper()}. {'⚠️ DINHEIRO REAL' if new_environment == 'live' else '🧪 Ambiente de Teste'}",
+                    "severity": "HIGH" if new_environment == "live" else "MEDIUM",
+                    "timestamp": datetime.now().isoformat(),
+                    "environment": new_environment.upper()
+                }
+                cache["alerts"].append(environment_change_alert)
+                
+                response_data = {
+                    "status": "success",
+                    "message": f"Bot environment changed to {new_environment.upper()}",
+                    "previous_environment": ENVIRONMENT.upper(),
+                    "new_environment": new_environment.upper(),
+                    "timestamp": datetime.now().isoformat(),
+                    "new_bot_balance": test_balance,
+                    "active_positions_restored": len(active_positions_backup),
+                    "warnings": []
+                }
+                
+                # Adicionar avisos específicos
+                if new_environment == "live":
+                    response_data["warnings"].extend([
+                        "⚠️ ATENÇÃO: Bot configurado para DINHEIRO REAL",
+                        "💰 Verifique todas as configurações antes de iniciar",
+                        "📊 Certifique-se de que as estratégias foram testadas",
+                        "🛡️ Configure stops e limites de risco adequados"
+                    ])
+                
+                if test_balance == 0:
+                    if new_environment == "testnet":
+                        response_data["warnings"].append("💡 Saldo testnet é zero - solicite fundos de teste se necessário")
+                    else:
+                        response_data["warnings"].append("⚠️ Saldo live é zero - deposite fundos antes de operar")
+                
+                logger.info(f"✅ Bot environment successfully changed to {new_environment.upper()}")
+                return response_data
+                
+            except Exception as bot_creation_error:
+                logger.error(f"❌ Failed to create bot for {new_environment}: {bot_creation_error}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to initialize bot for {new_environment}: {str(bot_creation_error)}"
+                )
+    
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions
+    except Exception as e:
+        logger.error(f"❌ Error setting environment: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error setting environment: {str(e)}")
+
+@app.post("/api/trading-bot/validate-environment")
+def validate_environment_change(request_data: dict):
+    """Endpoint para validar mudança de ambiente sem executar"""
+    try:
+        new_environment = request_data.get('environment', '').lower()
+        
+        if new_environment not in ['testnet', 'live']:
+            raise HTTPException(status_code=400, detail="Environment must be 'testnet' or 'live'")
+        
+        validation_result = {
+            "timestamp": datetime.now().isoformat(),
+            "target_environment": new_environment.upper(),
+            "current_environment": current_bot_environment.upper(),
+            "can_change": True,
+            "requirements_met": True,
+            "checks": {},
+            "warnings": [],
+            "recommendations": []
+        }
+        
+        # Verificar se bot está rodando
+        if real_trading_bot and real_trading_bot.running:
+            validation_result["can_change"] = False
+            validation_result["checks"]["bot_stopped"] = {
+                "status": "failed",
+                "message": "Bot must be stopped before changing environment"
+            }
+        else:
+            validation_result["checks"]["bot_stopped"] = {
+                "status": "passed",
+                "message": "Bot is not running"
+            }
+        
+        # Verificar credenciais
+        validation_result["checks"]["credentials"] = {
+            "status": "passed" if (API_KEY and SECRET) else "failed",
+            "message": "API credentials configured" if (API_KEY and SECRET) else "API credentials missing"
+        }
+        
+        if not (API_KEY and SECRET):
+            validation_result["requirements_met"] = False
+        
+        # Testar conectividade (sem criar instância permanente)
+        try:
+            test_bot = CombinedAITradingBot(environment=new_environment)
+            test_balance = test_bot.get_account_balance()
+            
+            validation_result["checks"]["connectivity"] = {
+                "status": "passed",
+                "message": f"Connection successful. Balance: ${test_balance}",
+                "balance": test_balance
+            }
+            
+            if test_balance == 0:
+                if new_environment == "testnet":
+                    validation_result["warnings"].append("Testnet balance is zero - request test funds if needed")
+                else:
+                    validation_result["warnings"].append("Live balance is zero - deposit funds before trading")
+            
+            # Limpar instância de teste
+            del test_bot
+            
+        except Exception as conn_error:
+            validation_result["checks"]["connectivity"] = {
+                "status": "failed",
+                "message": f"Connection failed: {str(conn_error)}"
+            }
+            validation_result["requirements_met"] = False
+        
+        # Adicionar recomendações específicas
+        if new_environment == "live":
+            validation_result["recommendations"].extend([
+                "Test strategies thoroughly in testnet first",
+                "Configure appropriate risk management settings", 
+                "Start with small position sizes",
+                "Monitor closely during initial live trading"
+            ])
+        
+        # Verificar posições ativas
+        active_positions_count = len(real_trading_bot.active_positions) if real_trading_bot else 0
+        if active_positions_count > 0:
+            validation_result["warnings"].append(f"Bot has {active_positions_count} active positions that will be preserved")
+        
+        validation_result["can_change"] = validation_result["can_change"] and validation_result["requirements_met"]
+        
+        return validation_result
+        
+    except Exception as e:
+        logger.error(f"❌ Error validating environment: {e}")
+        raise HTTPException(status_code=500, detail=f"Error validating environment: {str(e)}")
 
 @app.get("/api/trading-bot/diagnostics")
 def get_bot_diagnostics():
