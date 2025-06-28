@@ -1,3622 +1,3658 @@
-#!/usr/bin/env python3
-"""
-🤖 BOT DE TRADING COM IA LEVE v2.1 - VERSÃO CORRIGIDA E ATUALIZADA
-Integração: Machine Learning + Análise de Sentimento + Padrões Históricos + Calendário FRED + CryptoPanic
-Estratégia: SuperTrend + VWAP + RSI + Volume + Multi-Timeframe + Filtros IA + ANÁLISE AVANÇADA TALIB
-"""
-
 import os
-import time
-import json
-import hmac
-import hashlib
-import requests
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
+import yfinance as yf
 import pandas as pd
 import numpy as np
-import logging
-import ta
-import pickle
 from datetime import datetime, timedelta
+import logging
+from typing import Dict, List, Tuple, Optional, Deque, Any
+import math
+from scipy import stats
+import pytz # Importar pytz para timezones
+import requests
+import json
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Tuple, Any
-from dotenv import load_dotenv
-from collections import defaultdict, deque
+import threading
+import time
+import random
+import asyncio
+import aiohttp
+import talib
+import websockets
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+import sys
 
-# ============================================================================
-# 🧠 IMPORTAÇÕES DE MACHINE LEARNING E DADOS
-# ============================================================================
-
+# Importar o bot de trading real
+# A classe do bot foi renomeada para CombinedAITradingBot e importamos RISK_CONFIG
 try:
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-    from sklearn.linear_model import LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, classification_report
-    import joblib
-    ML_AVAILABLE = True
-except ImportError:
-    ML_AVAILABLE = False
+    from trading_bot_backtest import CombinedAITradingBot, API_KEY, SECRET, ENVIRONMENT, FRED_API_KEY as TRADING_BOT_FRED_API_KEY, NEWS_API_KEY as TRADING_BOT_NEWS_API_KEY, CRYPTOPANIC_API_KEY as TRADING_BOT_CRYPTOPANIC_API_KEY, TRADING_SYMBOLS, RISK_CONFIG
+except ImportError as e:
+    logging.error(f"Failed to import trading_bot_backtest: {e}")
+    logging.error("Please ensure trading_bot_backtest.py is in the same directory or accessible via PYTHONPATH.")
+    # Fallback/Dummy classes if import fails
+    class CombinedAITradingBot:
+        def __init__(self, environment="testnet"):
+            self.environment = environment
+            self.running = False
+            self.performance = {
+                "current_balance": 0.0, "start_balance": 0.0, "total_pnl": 0.0,
+                "roi_percentage": 0.0, "winning_trades": 0, "total_trades": 0,
+                "win_rate": 0.0, "max_drawdown": 0.0, "daily_pnl": 0.0,
+                "daily_trades": 0, "last_update": datetime.now().isoformat(),
+                "ai_accuracy": 0.0, "ai_predictions": 0, "ai_correct_predictions": 0,
+                "pattern_accuracy": 0.0, "sentiment_impact": 0.0,
+                "session_start_time": datetime.now().isoformat()
+            }
+            self.active_positions = []
+            self.signals_history = []
+            # Define risk_config para o mock bot
+            self.risk_config = {
+                'max_open_positions': 2,
+                'stop_loss_atr_multiplier': 1.5,
+                'position_size_usdt': 15,
+                'max_daily_trades': 10,
+                'cooldown_minutes': 10,
+                'trailing_stop_percent': 1.2,
+                'reversal_fall_pct': 1.0,
+                'reversal_rise_pct': 1.0,
+                'reversal_volume_multiplier': 2.5,
+                'reversal_cooldown_minutes': 45,
+                'max_correlation': 0.8,
+                'min_volume_ratio': 1.5,
+                'rsi_oversold': 25,
+                'rsi_overbought': 75,
+                'ai_confidence_boost': 0.20
+            }
+            self.urls = {"rest": "https://api-testnet.gateapi.io", "ws": "wss://ws-testnet.gate.io/v4/ws/futures/usdt"}
+            class MockAnalyzer:
+                def __init__(self):
+                    self.fred_events_cache = []
+                    self.last_fred_update = None
+                    class MockFredCalendar:
+                        def __init__(self):
+                            self.api_key = "MOCK_FRED_KEY"
+                            self.cache = {"upcoming_events": [], "last_full_update": None}
+                        def get_upcoming_releases(self, days_ahead=14):
+                            return []
+                        def generate_pre_event_alerts(self, hours_before=48):
+                            return []
+                        def get_next_critical_event(self):
+                            return None
+                        def get_high_impact_events_today(self):
+                            return []
+                    self.fred_calendar = MockFredCalendar()
+                    self.sentiment_analyzer = self.MockSentimentAnalyzer()
+                    self.ml_predictor = self.MockMLPredictor()
+                class MockSentimentAnalyzer:
+                    def __init__(self):
+                        self.sentiment_cache = {}
+                        self.last_update = {}
+                        self.cryptopanic_api_key = "MOCK_KEY"
+                        self.news_api_key = "MOCK_KEY"
+                    def get_crypto_news_sentiment(self, symbol):
+                        return random.uniform(0.3, 0.7)
+                class MockMLPredictor:
+                    def __init__(self):
+                        self.model_accuracy = 0.0
+                        self.training_data = []
+            self.analyzer = MockAnalyzer()
 
-try:
-    import xgboost as xgb
-    XGB_AVAILABLE = True
-except ImportError:
-    XGB_AVAILABLE = False
+        def run(self):
+            self.running = True
+            logging.info("Simulated trading bot loop started (Mock Bot).")
+            for _ in range(3):
+                time.sleep(5)
+                self.performance["current_balance"] += random.uniform(-10, 10)
+                self.performance["total_pnl"] += random.uniform(-10, 10)
+                self.performance["total_trades"] += 1
+                self.performance["winning_trades"] += random.randint(0,1)
+                if self.performance["total_trades"] > 0:
+                    self.performance["win_rate"] = (self.performance["winning_trades"] / self.performance["total_trades"]) * 100
+                    self.performance["roi_percentage"] = (self.performance["total_pnl"] / 1000) * 100
+                self.performance["last_update"] = datetime.now().isoformat()
+            self.running = False
+            logging.info("Simulated trading bot loop finished (Mock Bot).")
 
-try:
-    from textblob import TextBlob
-    SENTIMENT_AVAILABLE = True
-except ImportError:
-    SENTIMENT_AVAILABLE = False
+        def stop(self):
+            self.running = False
+            logging.info("Simulated trading bot stopped (Mock Bot).")
 
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-except ImportError:
-    YFINANCE_AVAILABLE = False
+        def get_account_balance(self):
+            return 10000.0 if self.environment == 'testnet' else 0.0
 
-try:
-    import talib
-    TALIB_AVAILABLE = True
-except ImportError:
-    TALIB_AVAILABLE = False
+        def get_current_price(self, symbol):
+            if symbol == "BTC_USDT": return 65000.0 + random.uniform(-1000, 1000)
+            if symbol == "ETH_USDT": return 3500.0 + random.uniform(-100, 100)
+            return 1.0
+
+        def get_detailed_ai_status(self):
+            # Usado para garantir que o frontend receba a estrutura esperada
+            testnet_perf = {
+                "balance": self.get_account_balance() if self.environment == 'testnet' else 0.0,
+                "total_pnl": self.performance["total_pnl"] if self.environment == 'testnet' else 0.0,
+                "roi_percentage": self.performance["roi_percentage"] if self.environment == 'testnet' else 0.0,
+                "win_rate": self.performance["win_rate"] if self.environment == 'testnet' else 0.0,
+                "total_trades": self.performance["total_trades"] if self.environment == 'testnet' else 0,
+                "winning_trades": self.performance["winning_trades"] if self.environment == 'testnet' else 0,
+                "daily_pnl": self.performance["daily_pnl"] if self.environment == 'testnet' else 0.0,
+                "daily_trades": self.performance["daily_trades"] if self.environment == 'testnet' else 0,
+            }
+            live_perf = {
+                "balance": self.get_account_balance() if self.environment == 'live' else 0.0,
+                "total_pnl": self.performance["total_pnl"] if self.environment == 'live' else 0.0,
+                "roi_percentage": self.performance["roi_percentage"] if self.environment == 'live' else 0.0,
+                "win_rate": self.performance["win_rate"] if self.environment == 'live' else 0.0,
+                "total_trades": self.performance["total_trades"] if self.environment == 'live' else 0,
+                "winning_trades": self.performance["winning_trades"] if self.environment == 'live' else 0,
+                "daily_pnl": self.performance["daily_pnl"] if self.environment == 'live' else 0.0,
+                "daily_trades": self.performance["daily_trades"] if self.environment == 'live' else 0,
+            }
+
+            return {
+                "status": "simulated_running" if self.running else "simulated_stopped",
+                "environment": self.environment,
+                "version": "2.1_simulated",
+                "current_balance": self.performance["current_balance"],
+                "start_balance": self.performance["start_balance"],
+                "total_pnl": self.performance["total_pnl"],
+                "roi_percentage": self.performance["roi_percentage"],
+                "winning_trades": self.performance["winning_trades"],
+                "total_trades": self.performance["total_trades"],
+                "win_rate": self.performance["win_rate"],
+                "daily_pnl": self.performance["daily_pnl"],
+                "daily_trades": self.performance["daily_trades"],
+                "testnet_performance": testnet_perf, # Incluído para compatibilidade com o frontend
+                "live_performance": live_perf,       # Incluído para compatibilidade com o frontend
+                "ai_accuracy": self.performance["ai_accuracy"],
+                "ai_predictions": self.performance["ai_predictions"],
+                "ai_correct_predictions": self.performance["ai_correct_predictions"],
+                "ml_model_accuracy": self.analyzer.ml_predictor.model_accuracy,
+                "training_samples": len(self.analyzer.ml_predictor.training_data),
+                "last_update": self.performance["last_update"],
+                "session_start_time": self.performance["session_start_time"],
+                "active_positions_count": len(self.active_positions),
+                "active_positions": [],
+                "recent_signals_count": len(self.signals_history),
+                "recent_signals": [],
+                "trade_history_count": 0,
+                "trade_history": [],
+                "config": {}, # Mock config, adjust if needed
+                "ai_system_status": {
+                    "ml_available": True, "xgb_available": True, "sentiment_available": True,
+                    "model_trained": True, "last_retrain": None, "pattern_database_size": 0,
+                    "sentiment_cache_size": 0, "fred_calendar_active": False, "fred_events_cached": 0,
+                    "fred_last_update": None, "cryptopanic_active": False
+                },
+                "ai_features": {}
+            }
 
 
-load_dotenv()
-
-# ============================================================================
-# 🔧 CONFIGURAÇÃO TEMPORÁRIA - YFINANCE COMO PRIMÁRIO
-# ============================================================================
-
-USE_YFINANCE_PRIMARY = True  # Mude para False quando Gate.io estiver estável
-
-# ============================================================================
-# 🔧 CONFIGURAÇÕES DA API GATE.IO, NEWSAPI, FRED E CRYPTOPANIC
-# ============================================================================
-
-API_KEY = os.getenv('GATE_TESTNET_API_KEY') or os.getenv('GATE_API_KEY')
-SECRET = os.getenv('GATE_TESTNET_API_SECRET') or os.getenv('GATE_API_SECRET')
+# Assign default values if not imported
+# Estes são usados pelo radar-dash.py diretamente, fora da instância do bot.
+# Eles devem ser carregados do .env.
+API_KEY = os.getenv('GATE_TESTNET_API_KEY') or os.getenv('GATE_API_KEY') or "YOUR_SIMULATED_API_KEY"
+SECRET = os.getenv('GATE_TESTNET_API_SECRET') or os.getenv('GATE_API_SECRET') or "YOUR_SIMULATED_SECRET"
 ENVIRONMENT = os.getenv('GATE_ENVIRONMENT', 'testnet')
-NEWS_API_KEY = os.getenv('NEWS_API_KEY')
-
-# Importa FRED_API_KEY e CRYPTOPANIC_API_KEY do config.py
-try:
-    from config import FRED_API_KEY
-except ImportError:
-    FRED_API_KEY = "DUMMY_KEY_FRED"
-    logging.getLogger(__name__).warning("FRED_API_KEY não encontrada em config.py. Funcionalidade do FRED será limitada/inativa.")
-
-try:
-    from config import CRYPTOPANIC_API_KEY
-except ImportError:
-    CRYPTOPANIC_API_KEY = "DUMMY_KEY_CRYPTOPANIC"
-    logging.getLogger(__name__).warning("CRYPTOPANIC_API_KEY não encontrada em config.py. Funcionalidade da CryptoPanic será limitada/inativa.")
-
-def get_base_urls():
-    """Retorna URLs baseado no ambiente"""
-    if ENVIRONMENT == 'testnet':
-        return {
-            'rest': 'https://api-testnet.gateapi.io',
-            'ws': 'wss://ws-testnet.gate.io/v4/ws/futures/usdt'
-        }
-    else:
-        return {
-            'rest': 'https://fx-api.gateio.ws',
-            'ws': 'wss://fx-ws.gateio.ws/v4/ws/usdt'
-        }
-
-def sign_request(method: str, endpoint: str, query_string: str = '', body: str = '') -> dict:
-    """Gera headers assinados para autenticação"""
-    timestamp = str(int(time.time()))
-    
-    if not endpoint.startswith('/api/v4'):
-        endpoint_for_signature = '/api/v4' + endpoint
-    else:
-        endpoint_for_signature = endpoint
-    
-    message = f"{method}\n{endpoint_for_signature}\n{query_string}\n{hashlib.sha512(body.encode('utf-8')).hexdigest()}\n{timestamp}"
-    
-    signature = hmac.new(
-        SECRET.encode('utf-8'), 
-        message.encode('utf-8'), 
-        hashlib.sha512
-    ).hexdigest()
-    
-    headers = {
-        'Content-Type': 'application/json',
-        'KEY': API_KEY,
-        'Timestamp': timestamp,
-        'SIGN': signature
-    }
-    
-    return headers
-
-def _convert_gateio_symbol_to_yfinance(symbol: str) -> str:
-    """Converts Gate.io symbol (e.g., BTC_USDT) to yfinance format (e.g., BTC-USD)."""
-    parts = symbol.split('_')
-    if len(parts) == 2:
-        return f"{parts[0]}-USD" # yfinance usually uses USD, not USDT
-    return symbol # Return as is if format is unexpected
-
-# Símbolos para trading
+TRADING_BOT_FRED_API_KEY = os.getenv('FRED_API_KEY') or "DUMMY_KEY_FRED"
+TRADING_BOT_NEWS_API_KEY = os.getenv('NEWS_API_KEY') or "DUMMY_KEY_NEWSAPI"
+TRADING_BOT_CRYPTOPANIC_API_KEY = os.getenv('CRYPTOPANIC_API_KEY') or "DUMMY_KEY_CRYPTOPANIC"
 TRADING_SYMBOLS = ['BTC_USDT', 'ETH_USDT']
 
-# ============================================================================
-# ⚙️ CONFIGURAÇÕES DO SISTEMA
-# ============================================================================
+# Definindo RISK_CONFIG de fallback no radar-dash.py caso a importação do bot falhe
+if 'RISK_CONFIG' not in locals(): # Verifica se RISK_CONFIG já foi importado do bot real
+    RISK_CONFIG = {
+        'testnet': {
+            'position_size_usdt': 15, 'max_open_positions': 2, 'stop_loss_atr_multiplier': 2.0,
+            'take_profit_atr_multiplier': 4.0, 'max_daily_trades': 10, 'cooldown_minutes': 10,
+            'trailing_stop_percent': 1.2, 'reversal_fall_pct': 1.0, 'reversal_rise_pct': 1.0,
+            'reversal_volume_multiplier': 2.5, 'reversal_cooldown_minutes': 45,
+            'max_correlation': 0.8, 'min_volume_ratio': 1.5, 'rsi_oversold': 25,
+            'rsi_overbought': 75, 'ai_confidence_boost': 0.20
+        },
+        'live': {
+            'position_size_usdt': 30, 'max_open_positions': 1, 'stop_loss_atr_multiplier': 1.5,
+            'take_profit_atr_multiplier': 3.0, 'max_daily_trades': 6, 'cooldown_minutes': 20,
+            'trailing_stop_percent': 0.8, 'reversal_fall_pct': 1.5, 'reversal_rise_pct': 1.5,
+            'reversal_volume_multiplier': 3.0, 'reversal_cooldown_minutes': 90,
+            'max_correlation': 0.6, 'min_volume_ratio': 2.0, 'rsi_oversold': 20,
+            'rsi_overbought': 80, 'ai_confidence_boost': 0.15
+        }
+    }
 
-# Configurações específicas para IA
-AI_CONFIG = {
-    'model_retrain_interval_hours': 24,    # Retreinar modelo a cada 24h
-    'min_training_samples': 100,           # Mínimo de trades para treinar
-    'feature_window': 20,                  # Janela de features (20 candles)
-    'prediction_threshold': 0.65,          # Confiança mínima da IA (65%)
-    'pattern_memory_size': 1000,           # Quantos padrões manter em memória
-    'sentiment_weight': 0.15,              # Peso do sentimento (15%)
-    'model_save_path': 'models/',          # Pasta para salvar modelos
-    'fred_impact_penalty_factor': 0.20,    # Penalidade na confiança se houver evento FRED alto impacto
-    'fred_cooldown_minutes_high_impact': 60, # Cooldown em minutos após evento de alto impacto FRED
+
+# ===============================================================================
+# 🔧 CONFIGURAÇÕES (GLOBAL VARIABLES)
+# ===============================================================================
+
+# Símbolos dos ativos
+SYMBOLS = {
+    'gold': 'GC=F',
+    'btc': 'BTC-USD',
+    'dxy': 'DX-Y.NYB'
 }
 
-# Configurações de risco por ambiente
-RISK_CONFIG = {
-    'testnet': {
-        'position_size_usdt': 15,
-        'max_open_positions': 2,
-        'stop_loss_atr_multiplier': 2.0,
-        'take_profit_atr_multiplier': 4.0,
-        'max_daily_trades': 10,
-        'cooldown_minutes': 10,
-        'trailing_stop_percent': 1.2,
-        'reversal_fall_pct': 1.0,
-        'reversal_rise_pct': 1.0,
-        'reversal_volume_multiplier': 2.5,
-        'reversal_cooldown_minutes': 45,
-        'max_correlation': 0.8,
-        'min_volume_ratio': 1.5,
-        'rsi_oversold': 25,
-        'rsi_overbought': 75,
-        'ai_confidence_boost': 0.20          # Boost de confiança da IA
+# Cores dos ativos
+ASSET_COLORS = {
+    'gold': '#FFD700',
+    'btc': '#FF8C00',
+    'dxy': '#00CC66'
+}
+
+# Chave da API FRED (usará a do bot)
+FRED_BASE_URL = "https://api.stlouisfed.org/fred"
+
+# Configurações de cache
+CACHE_CONFIG = {
+    "price_data_duration": 30,
+    "fred_data_duration": 1800,
+    "max_alerts": 100,
+    "max_price_history": 1000,
+    "max_angular_history": 500
+}
+
+# Intervalos de atualização
+UPDATE_INTERVALS = {
+    "angular_analysis": 60,
+    "fred_data": 1800
+}
+
+# Thresholds para alertas angulares
+ANGULAR_ALERT_THRESHOLDS = {
+    "perfect_divergence": {
+        "dxy_min_angle": 15,
+        "btc_max_angle": -15,
+        "min_strength": 0.6
     },
-    'live': {
-        'position_size_usdt': 30,
-        'max_open_positions': 1,
-        'stop_loss_atr_multiplier': 1.5,
-        'take_profit_atr_multiplier': 3.0,
-        'max_daily_trades': 6,
-        'cooldown_minutes': 20,
-        'trailing_stop_percent': 0.8,
-        'reversal_fall_pct': 1.5,
-        'reversal_rise_pct': 1.5,
-        'reversal_volume_multiplier': 3.0,
-        'reversal_cooldown_minutes': 90,
-        'max_correlation': 0.6,
-        'min_volume_ratio': 2.0,
-        'rsi_oversold': 20,
-        'rsi_overbought': 80,
-        'ai_confidence_boost': 0.15          # Mais conservador em live
+    "bullish_convergence": {
+        "btc_min_angle": 10,
+        "gold_min_angle": 5,
+        "dxy_max_angle": -5
+    },
+    "bearish_avalanche": {
+        "btc_max_angle": -10,
+        "gold_max_angle": -5,
+        "dxy_min_angle": 10
+    },
+    "trend_reversal": {
+        "min_angle_change": 20
+    },
+    "extreme_momentum": {
+        "min_angle": 30,
+        "min_strength": 0.7
     }
 }
 
-# ============================================================================
-# 🔧 MÉTODOS AUXILIARES PARA DADOS (CORRIGIDOS) - Funções Globais
-# ============================================================================
+# Configurações do servidor
+SERVER_CONFIG = {
+    "host": "0.0.0.0",
+    "port": 8000,
+    "reload": False,
+    "log_level": "info"
+}
 
-def get_yfinance_data_safe(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    """YFinance com tratamento de erro robusto"""
+# Configurações CORS
+CORS_CONFIG = {
+    "allow_origins": ["*"],
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"]
+}
+
+# Informações do sistema
+SYSTEM_INFO = {
+    "version": "6.0-compatible",
+    "description": "Sistema de Trading Bot Compatível com Frontend v6.0",
+    "features": [
+        "📊 Dados de mercado em tempo real (via YFinance e Gate.io)",
+        "📐 Análise angular avançada",
+        "🚨 Sistema de alertas inteligente",
+        "📅 Calendário econômico FRED integrado (via Trading Bot)",
+        "🎯 Detecção de padrões complexos",
+        "🤖 Trading Bot REAL (com IA, Kelly, Multi-API)",
+        "📰 Análise de Sentimento (NewsAPI, CryptoPanic)",
+        "📈 MACD em tempo real e detecção de cruzamentos"
+    ]
+}
+
+# ===============================================================================
+# 🔧 CONFIGURAÇÃO DE LOGGING
+# ===============================================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# ===============================================================================
+# 💾 CACHE PRINCIPAL E ESTADOS GLOBAIS
+# ===============================================================================
+
+cache = {
+    "data": None,
+    "timestamp": None,
+    "cache_duration": CACHE_CONFIG["price_data_duration"],
+    "price_history": [],
+    "alerts": [],
+    "angular_data": [],
+    "trend_analysis": None,
+    "last_alert_check": None,
+    "last_angular_analysis": None,
+    "fred_data": {
+        "upcoming_events": [],
+        "pre_event_alerts": [],
+        "last_fred_update": None,
+        "fred_cache_duration": CACHE_CONFIG["fred_data_duration"]
+    }
+}
+
+# Cache específico para sentimento de mercado
+sentiment_cache = {
+    "btc_sentiment": {
+        "buyers": 50.0,
+        "sellers": 50.0,
+        "total_bids": 0.0,
+        "total_asks": 0.0,
+        "last_update": None,
+        "trend": "NEUTRAL",
+        "volume_24h": "$0B",
+        "bid_ask_ratio": 1.0
+    },
+    "paxg_sentiment": {
+        "buyers": 50.0,
+        "sellers": 50.0,
+        "total_bids": 0.0,
+        "total_asks": 0.0,
+        "last_update": None,
+        "trend": "NEUTRAL",
+        "volume_24h": "$0B",
+        "bid_ask_ratio": 1.0
+    },
+    "fear_greed_index": 50,
+    "market_mood": "NEUTRAL",
+    "websocket_connected": False,
+    "sentiment_history": []
+}
+
+# Cache para as recomendações do backtest (simulado aqui)
+backtest_recommendations_cache = {
+    "recommendations": [],
+    "last_update": None,
+    "update_interval_minutes": 20
+}
+
+# Instância global do bot de trading real
+real_trading_bot: Optional[CombinedAITradingBot] = None
+
+# Lista de conexões WebSocket ativas
+active_sentiment_websocket_connections: List[WebSocket] = []
+active_rsi_macd_websocket_connections: List[WebSocket] = []
+
+# ===============================================================================
+# 📊 CACHE PARA DADOS TEMPO REAL (NOVO)
+# ===============================================================================
+
+# Cache para dados OHLCV em tempo real
+realtime_ohlcv_cache = {
+    "btc": {
+        "candles": deque(maxlen=200),
+        "current_candle": None,
+        "macd_data": {
+            "macd": [],
+            "signal": [],
+            "histogram": [],
+            "last_crossover": None,
+            "crossover_alerts": []
+        },
+        "rsi_data": { # NOVO: Dados RSI
+            "rsi": [],
+            "last_value": 0.0,
+            "angle": 0.0,
+            "strength": 0.0,
+            "trend": "NEUTRAL"
+        },
+        "macd_angle_data": { # NOVO: Dados de ângulo do MACD
+            "macd_angle": 0.0,
+            "macd_angle_strength": 0.0,
+            "signal_angle": 0.0,
+            "signal_angle_strength": 0.0,
+        },
+        "stochrsi_data": {"k_value": 0.0, "d_value": 0.0, "k_series": [], "d_series": []}, # NOVO
+        "last_update": None,
+        "websocket_connected": False
+    },
+    "eth": {
+        "candles": deque(maxlen=200),
+        "current_candle": None,
+        "macd_data": {
+            "macd": [],
+            "signal": [],
+            "histogram": [],
+            "last_crossover": None,
+            "crossover_alerts": []
+        },
+        "rsi_data": { # NOVO: Dados RSI
+            "rsi": [],
+            "last_value": 0.0,
+            "angle": 0.0,
+            "strength": 0.0,
+            "trend": "NEUTRAL"
+        },
+        "macd_angle_data": { # NOVO: Dados de ângulo do MACD
+            "macd_angle": 0.0,
+            "macd_angle_strength": 0.0,
+            "signal_angle": 0.0,
+            "signal_angle_strength": 0.0,
+        },
+        "stochrsi_data": {"k_value": 0.0, "d_value": 0.0, "k_series": [], "d_series": []}, # NOVO
+        "last_update": None,
+        "websocket_connected": False
+    },
+    "volume_realtime": deque(maxlen=100),
+    "price_updates": deque(maxlen=50)
+}
+
+# Lista de conexões WebSocket para dados OHLCV
+active_ohlcv_websocket_connections: List[WebSocket] = []
+
+# ===============================================================================
+# FastAPI APP INITIALIZATION
+# ===============================================================================
+
+app = FastAPI(
+    title=f"Trading Dashboard API {SYSTEM_INFO['version']} - Compatible",
+    description=SYSTEM_INFO["description"],
+    version=SYSTEM_INFO["version"],
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_CONFIG["allow_origins"],
+    allow_credentials=CORS_CONFIG["allow_credentials"],
+    allow_methods=CORS_CONFIG["allow_methods"],
+    allow_headers=CORS_CONFIG["allow_headers"],
+)
+
+# APIRouter para as rotas do Trading Bot
+trading_bot_router = APIRouter(prefix="/api/trading-bot")
+
+# ===============================================================================
+# HELPER FUNCTIONS AND CLASSES
+# ===============================================================================
+
+def calculate_volume_colors_and_macd(hist_data: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calcula cores do volume baseado em alta/baixa e melhora dados MACD
+    CORRIGIDO para funcionar com dados reais da Gate.io
+    """
     try:
-        symbol_map = {
-            'BTC_USDT': 'BTC-USD',
-            'ETH_USDT': 'ETH-USD',
-            'BNB_USDT': 'BNB-USD',
-            'ADA_USDT': 'ADA-USD'
-        }
+        if hist_data.empty or len(hist_data) < 2:
+            logger.warning("DataFrame vazio ou insuficiente para calculate_volume_colors_and_macd")
+            return hist_data
         
-        yf_symbol = symbol_map.get(symbol, symbol.replace('_USDT', '-USD'))
+        required_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+        missing_cols = [col for col in required_cols if col not in hist_data.columns]
+        if missing_cols:
+            logger.error(f"Colunas faltando no DataFrame: {missing_cols}")
+            return hist_data
         
-        interval_map = {
-            '1m': '1m', '5m': '5m', '15m': '15m', 
-            '30m': '30m', '1h': '1h', '4h': '4h', '1d': '1d'
-        }
-        yf_interval = interval_map.get(interval, '5m')
+        hist_data = hist_data.copy()
+        hist_data['price_direction'] = 'neutral'
         
-        # Períodos otimizados
-        if yf_interval in ['1m', '5m']:
-            period = '7d'
-        elif yf_interval in ['15m', '30m']:
-            period = '60d'
-        else:
-            period = '2y'
+        for i in range(1, len(hist_data)):
+            try:
+                current_close = hist_data.iloc[i]['Close']
+                previous_close = hist_data.iloc[i-1]['Close']
+                
+                if pd.isna(current_close) or pd.isna(previous_close):
+                    continue
+                
+                if current_close > previous_close:
+                    hist_data.iloc[i, hist_data.columns.get_loc('price_direction')] = 'up'
+                elif current_close < previous_close:
+                    hist_data.iloc[i, hist_data.columns.get_loc('price_direction')] = 'down'
+                else:
+                    hist_data.iloc[i, hist_data.columns.get_loc('price_direction')] = 'neutral'
+            except Exception as e:
+                logger.warning(f"Erro processando cor do volume no índice {i}: {e}")
+                continue
         
-        if not YFINANCE_AVAILABLE:
-            logging.getLogger(__name__).warning("YFinance não disponível para get_yfinance_data_safe.")
-            return pd.DataFrame()
-            
-        ticker = yf.Ticker(yf_symbol)
-        df = ticker.history(period=period, interval=yf_interval, timeout=10, auto_adjust=True) # Adicionado auto_adjust=True
+        hist_data.iloc[0, hist_data.columns.get_loc('price_direction')] = 'neutral'
         
-        if not df.empty:
-            # Padronizar colunas
-            df.columns = [col.title() for col in df.columns]
-            df.index.name = 'timestamp'
-            df = df.dropna().sort_index().tail(limit)
-            
-            return df
+        if 'price_direction' in hist_data.columns:
+            color_stats = hist_data['price_direction'].value_counts()
+            logger.debug(f"Volume colors calculated: {dict(color_stats)}")
         
-        return pd.DataFrame()
+        return hist_data
         
     except Exception as e:
-        logging.getLogger(__name__).warning(f"YFinance erro para {symbol}: {e}")
-        return pd.DataFrame()
+        logger.error(f"Erro ao calcular cores do volume: {e}")
+        return hist_data
 
-def get_gateio_data_safe(symbol: str, interval: str, limit: int) -> pd.DataFrame:
-    """Gate.io com timeout rápido"""
-    try:
-        # Usar URLs corretas baseado no ambiente
-        if ENVIRONMENT == 'testnet':
-            base_url = 'https://api-testnet.gateapi.io'
-        else:
-            base_url = 'https://fx-api.gateio.ws'
-            
-        url = f"{base_url}/api/v4/futures/usdt/candlesticks" # Assumindo futuros para OHLCV
-        params = {
-            "contract": symbol,
-            "interval": interval,
-            "limit": min(limit, 1000)
+# 📐 ANGULAR ANALYSIS SYSTEM
+def calculate_trend_angle(prices: List[float], time_window: int = 5) -> Dict:
+    """Calcula o ângulo de tendência usando regressão linear."""
+    if len(prices) < time_window:
+        return {
+            "angle": 0,
+            "strength": 0,
+            "r_squared": 0,
+            "trend": "NEUTRAL",
+            "velocity": 0
         }
+
+    try:
+        recent_prices = prices[-time_window:]
+        x = np.arange(len(recent_prices))
+
+        slope, intercept, r_value, p_value, std_err = stats.linregress(x, recent_prices)
+        angle = math.degrees(math.atan(slope))
+        r_squared = r_value ** 2
+
+        if angle > 30 and r_squared > 0.7:
+            trend = "STRONG_UP"
+        elif angle > 10 and r_squared > 0.4:
+            trend = "WEAK_UP"
+        elif angle < -30 and r_squared > 0.7:
+            trend = "STRONG_DOWN"
+        elif angle < -10 and r_squared > 0.4:
+            trend = "WEAK_DOWN"
+        else:
+            trend = "NEUTRAL"
+
+        return {
+            "angle": round(angle, 2),
+            "strength": round(r_squared, 3),
+            "r_squared": round(r_squared, 3),
+            "trend": trend,
+            "velocity": round(slope, 6),
+            "p_value": round(p_value, 4)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error calculating trend angle: {e}")
+        return {
+            "angle": 0,
+            "strength": 0,
+            "r_squared": 0,
+            "trend": "NEUTRAL",
+            "velocity": 0
+        }
+
+def analyze_angular_patterns(angular_history: List[Dict]) -> Dict:
+    """Analisa padrões angulares complexos."""
+    if len(angular_history) < 3:
+        return {"patterns": [], "confidence": 0, "total_patterns": 0}
+
+    try:
+        patterns = []
+        latest = angular_history[-1]
         
-        response = requests.get(url, params=params, timeout=5)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data:
-                df_data = []
-                for candle in data:
+        required_keys = ["btc", "gold", "dxy"]
+        for key in required_keys:
+            if key not in latest or not isinstance(latest[key], dict):
+                logger.warning(f"Missing or invalid '{key}' data in angular analysis. Skipping patterns.")
+                return {"patterns": [], "confidence": 0, "total_patterns": 0}
+
+        if (latest["dxy"]["angle"] > ANGULAR_ALERT_THRESHOLDS["perfect_divergence"]["dxy_min_angle"] and 
+            latest["dxy"]["strength"] > ANGULAR_ALERT_THRESHOLDS["perfect_divergence"]["min_strength"] and
+            latest["btc"]["angle"] < ANGULAR_ALERT_THRESHOLDS["perfect_divergence"]["btc_max_angle"] and 
+            latest["btc"]["strength"] > ANGULAR_ALERT_THRESHOLDS["perfect_divergence"]["min_strength"]):
+            patterns.append({
+                "name": "PERFECT_DIVERGENCE",
+                "title": "🎯 Perfect Divergence Detected",
+                "description": f"DXY rising {latest['dxy']['angle']:.1f}° while BTC falling {abs(latest['btc']['angle']):.1f}°",
+                "severity": "HIGH",
+                "confidence": min(latest["dxy"]["strength"], latest["btc"]["strength"]),
+                "type": "DIVERGENCE"
+            })
+
+        if (latest["btc"]["angle"] > ANGULAR_ALERT_THRESHOLDS["bullish_convergence"]["btc_min_angle"] and 
+            latest["gold"]["angle"] > ANGULAR_ALERT_THRESHOLDS["bullish_convergence"]["gold_min_angle"] and 
+            latest["dxy"]["angle"] < ANGULAR_ALERT_THRESHOLDS["bullish_convergence"]["dxy_max_angle"]):
+            patterns.append({
+                "name": "BULLISH_CONVERGENCE",
+                "title": "🚀 Bullish Convergence Pattern",
+                "description": f"BTC +{latest['btc']['angle']:.1f}°, Gold +{latest['gold']['angle']:.1f}°, DXY {latest['dxy']['angle']:.1f}°",
+                "severity": "MEDIUM",
+                "confidence": (latest["btc"]["strength"] + latest["gold"]["strength"]) / 2,
+                "type": "CONVERGENCE"
+            })
+
+        if (latest["btc"]["angle"] < ANGULAR_ALERT_THRESHOLDS["bearish_avalanche"]["btc_max_angle"] and 
+            latest["gold"]["angle"] < ANGULAR_ALERT_THRESHOLDS["bearish_avalanche"]["gold_max_angle"] and 
+            latest["dxy"]["angle"] > ANGULAR_ALERT_THRESHOLDS["bearish_avalanche"]["dxy_min_angle"]):
+            patterns.append({
+                "name": "BEARISH_AVALANCHE",
+                "title": "📉 Bearish Avalanche Detected",
+                "description": f"Risk assets falling: BTC {latest['btc']['angle']:.1f}°, Gold {latest['gold']['angle']:.1f}°",
+                "severity": "HIGH",
+                "confidence": (latest["btc"]["strength"] + latest["gold"]["strength"] + latest["dxy"]["strength"]) / 3,
+                "type": "AVALANCHE"
+            })
+
+        avg_confidence = sum([p["confidence"] for p in patterns]) / len(patterns) if patterns else 0
+
+        return {
+            "patterns": patterns,
+            "total_patterns": len(patterns),
+            "confidence": round(avg_confidence, 3),
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error in angular pattern analysis: {e}")
+        return {"patterns": [], "confidence": 0, "total_patterns": 0}
+
+def update_angular_analysis(current_data: Dict):
+    """Atualiza análise angular com dados atuais"""
+    try:
+        current_time = datetime.now()
+
+        if len(cache["price_history"]) < 5:
+            return
+
+        if not all(asset_key in current_data and 'current_price' in current_data[asset_key] for asset_key in SYMBOLS.keys()):
+            logger.warning("Current data is incomplete for angular analysis")
+            return
+
+        points_for_trend = 10 
+        if len(cache["price_history"]) < points_for_trend:
+            logger.warning(f"Insufficient historical data ({len(cache['price_history'])} points) for robust angular analysis. Skipping.")
+            return
+
+        btc_prices_hist = [point["btc_price"] for point in cache["price_history"]]
+        gold_prices_hist = [point["gold_price"] for point in cache["price_history"]]
+        dxy_prices_hist = [point["dxy_price"] for point in cache["price_history"]]
+
+        btc_prices_current = btc_prices_hist + [current_data["btc"]["current_price"]]
+        gold_prices_current = gold_prices_hist + [current_data["gold"]["current_price"]]
+        dxy_prices_current = dxy_prices_hist + [current_data["dxy"]["current_price"]]
+
+        angular_point = {
+            "timestamp": current_time.isoformat(),
+            "btc": calculate_trend_angle(btc_prices_current, 5),
+            "gold": calculate_trend_angle(gold_prices_current, 5),
+            "dxy": calculate_trend_angle(dxy_prices_current, 5)
+        }
+
+        cache["angular_data"].append(angular_point)
+
+        if len(cache["angular_data"]) > CACHE_CONFIG["max_angular_history"]:
+            cache["angular_data"] = cache["angular_data"][-CACHE_CONFIG["max_angular_history"]:]
+
+        cache["last_angular_analysis"] = current_time.isoformat()
+
+        logger.debug(f"📐 Angular analysis updated: {len(cache['angular_data'])} points")
+
+    except Exception as e:
+        logger.error(f"❌ Error updating angular analysis: {e}")
+
+# 📊 MARKET DATA COLLECTION SYSTEM
+def format_volume(volume: int) -> str:
+    """Formata volume para exibição (K, M, B)"""
+    if volume >= 1_000_000_000:
+        return f"{volume/1_000_000_000:.1f}B"
+    elif volume >= 1_000_000:
+        return f"{volume/1_000_000:.1f}M"
+    elif volume >= 1_000:
+        return f"{volume/1_000:.1f}K"
+    else:
+        return str(volume)
+
+def get_current_market_data() -> Dict:
+    """Coleta dados atuais de mercado usando múltiplas estratégias."""
+    current_data = {}
+
+    for name, symbol in SYMBOLS.items():
+        try:
+            logger.debug(f"📊 Fetching data for {name} ({symbol})")
+
+            current_price = 0.0
+            current_volume = 0
+            market_open = 0.0
+            day_high = 0.0
+            day_low = 0.0
+            previous_close = 0.0
+
+            # Strategy 1: yfinance ticker.info
+            try:
+                ticker = yf.Ticker(symbol)
+                info = ticker.info
+
+                price_keys = ['regularMarketPrice', 'currentPrice', 'previousClose', 'price']
+                for key in price_keys:
+                    if info.get(key) is not None and info.get(key) > 0:
+                        current_price = float(info.get(key))
+                        break
+
+                volume_keys = ['regularMarketVolume', 'volume', 'averageVolume']
+                for key in volume_keys:
+                    if info.get(key) is not None and info.get(key) > 0:
+                        current_volume = int(info.get(key))
+                        break
+
+                market_open = float(info.get('regularMarketOpen', 0) or info.get('open', 0) or current_price)
+                day_high = float(info.get('dayHigh', 0) or info.get('regularMarketDayHigh', 0) or current_price)
+                day_low = float(info.get('dayLow', 0) or info.get('regularMarketDayLow', 0) or current_price)
+                previous_close = float(info.get('previousClose', 0) or info.get('regularMarketPreviousClose', 0) or current_price)
+
+            except Exception as e:
+                logger.warning(f"⚠️ Info method failed for {symbol}: {e}")
+
+            # Strategy 2: yfinance ticker.history (fallback)
+            if current_price == 0.0 or current_volume == 0:
+                try:
+                    hist_data = yf.download(symbol, period="1d", interval="1m", progress=False, threads=False, auto_adjust=True) # auto_adjust=True
+                    if not hist_data.empty:
+                        if current_price == 0.0 and 'Close' in hist_data.columns:
+                            current_price = float(hist_data['Close'].iloc[-1])
+                        if current_volume == 0 and 'Volume' in hist_data.columns:
+                            current_volume = int(hist_data['Volume'].iloc[-1].item()) # .item() para evitar FutureWarning
+                        if market_open == 0.0 and 'Open' in hist_data.columns:
+                            market_open = float(hist_data['Open'].iloc[-1])
+                        if day_high == 0.0 and 'High' in hist_data.columns:
+                            day_high = float(hist_data['High'].iloc[-1])
+                        if day_low == 0.0 and 'Low' in hist_data.columns:
+                            day_low = float(hist_data['Low'].iloc[-1])
+                        if previous_close == 0.0 and len(hist_data) > 1:
+                            previous_close = float(hist_data['Close'].iloc[-2])
+
+                except Exception as e:
+                    logger.warning(f"⚠️ History method failed for {symbol}: {e}")
+
+            # Final fallbacks for missing values
+            # ATENÇÃO: Mudando para 0.0 ou valores de fallback que o frontend interpretará como "N/A"
+            # para evitar a persistência de dados simulados no frontend.
+            if current_price == 0.0:
+                logger.warning(f"Using 0.0 as fallback price for {name} (failed to fetch real data).")
+                current_price = 0.0 # Agora é 0.0, para o frontend exibir N/A
+            if current_volume == 0:
+                logger.warning(f"Using 0 as fallback volume for {name}.")
+                current_volume = 0 # Não simular volume aleatório
+            if market_open == 0.0: market_open = current_price if current_price != 0 else 0.0
+            if day_high == 0.0: day_high = current_price if current_price != 0 else 0.0
+            if day_low == 0.0: day_low = current_price if current_price != 0 else 0.0
+            if previous_close == 0.0: previous_close = current_price if current_price != 0 else 0.0
+
+            current_data[name] = {
+                'current_price': current_price,
+                'current_volume': current_volume,
+                'market_open': market_open,
+                'day_high': day_high,
+                'day_low': day_low,
+                'previous_close': previous_close
+            }
+
+            logger.debug(f"📊 {name}: ${current_price:.2f} | Vol: {current_volume:,}")
+
+        except Exception as e:
+            logger.error(f"❌ Critical error getting data for {symbol}: {e}")
+            current_data[name] = {
+                'current_price': 0.0, # Zero para frontend exibir N/A
+                'current_volume': 0,
+                'market_open': 0.0,
+                'day_high': 0.0,
+                'day_low': 0.0,
+                'previous_close': 0.0
+            }
+
+    return current_data
+
+def update_price_history(current_data: Dict):
+    """Atualiza histórico de preços e dispara análises"""
+    try:
+        current_time = datetime.now()
+
+        if not all(asset in current_data and 'current_price' in current_data[asset] for asset in SYMBOLS.keys()):
+            logger.error("current_data is incomplete for price history")
+            return
+
+        price_point = {
+            "timestamp": current_time.isoformat(),
+            "gold_price": current_data["gold"]["current_price"],
+            "btc_price": current_data["btc"]["current_price"],
+            "dxy_price": current_data["dxy"]["current_price"],
+            "gold_volume": current_data["gold"]["current_volume"],
+            "btc_volume": current_data["btc"]["current_volume"],
+            "dxy_volume": current_data["dxy"]["current_volume"]
+        }
+
+        cache["price_history"].append(price_point)
+
+        if len(cache["price_history"]) > CACHE_CONFIG["max_price_history"]:
+            cache["price_history"] = cache["price_history"][-CACHE_CONFIG["max_price_history"]:]
+
+        update_angular_analysis(current_data)
+
+        if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
+            bot_fred_data = real_trading_bot.analyzer.fred_calendar.cache
+            if real_trading_bot.environment == 'simulate_backtest' and hasattr(real_trading_bot.analyzer.fred_calendar, 'datetime_now_override'):
+                real_trading_bot.analyzer.fred_calendar.datetime_now_override = datetime.now()
+            
+            # Garante que o cache FRED do bot esteja atualizado antes de tentar usar
+            real_trading_bot.analyzer._update_fred_events_cache() 
+
+            if bot_fred_data["last_full_update"]:
+                 # Certifique-se que o e.to_dict() existe na classe EconomicEvent em trading_bot_backtest.py
+                 cache["fred_data"]["upcoming_events"] = [e.to_dict() for e in bot_fred_data["upcoming_events"]]
+                 cache["fred_data"]["last_fred_update"] = bot_fred_data["last_full_update"].isoformat()
+                 cache["fred_data"]["pre_event_alerts"] = real_trading_bot.analyzer.fred_calendar.generate_pre_event_alerts(hours_before=48)
+                 for alert in cache["fred_data"]["pre_event_alerts"]:
+                     if alert not in cache["alerts"]:
+                         cache["alerts"].append(alert)
+                 
+                 logger.debug(f"📅 FRED data synced from bot: {len(cache['fred_data']['upcoming_events'])} events")
+            else:
+                 logger.warning("FRED calendar in bot has not yet updated its cache.")
+        else:
+            logger.warning("Trading bot or its FRED calendar is not available to sync FRED data.")
+
+
+        logger.debug(f"📈 History updated: {len(cache['price_history'])} price points")
+
+    except Exception as e:
+        logger.error(f"❌ Error updating price history: {e}")
+
+# 💼 BACKTEST ENGINE SYSTEM (Simulado para dashboard)
+class BacktestEngine:
+    """Engine de backtest para geração de sinais de trading (simulado para o dashboard)"""
+
+    def __init__(self):
+        self.patterns_db = [
+            {
+                "name": "Golden Cross BTC",
+                "description": "MA50 cruza acima MA200 no BTC",
+                "success_rate": 0.73,
+                "avg_return": 0.15,
+                "max_drawdown": 0.08,
+                "timeframe": "4h",
+                "asset": "BTC",
+                "conditions": ["ma_50_above_ma_200", "volume_above_average"]
+            },
+            {
+                "name": "DXY Rejection Gold Rally",
+                "description": "DXY rejeitado em resistência + Gold breakout",
+                "success_rate": 0.68,
+                "avg_return": 0.12,
+                "max_drawdown": 0.06,
+                "timeframe": "1d",
+                "asset": "GOLD",
+                "conditions": ["dxy_resistance_rejection", "gold_breakout"]
+            },
+            {
+                "name": "Perfect Divergence Short",
+                "description": "DXY alta + BTC baixa = short BTC",
+                "success_rate": 0.65,
+                "avg_return": 0.10,
+                "max_drawdown": 0.12,
+                "timeframe": "1h",
+                "asset": "BTC",
+                "conditions": ["dxy_uptrend", "btc_downtrend"]
+            },
+            {
+                "name": "Risk-Off Gold Surge",
+                "description": "Eventos macro negativos + fuga para Gold",
+                "success_rate": 0.71,
+                "avg_return": 0.18,
+                "max_drawdown": 0.05,
+                "timeframe": "1d",
+                "asset": "GOLD",
+                "conditions": ["macro_negative_surprise", "vix_spike"]
+            },
+            {
+                "name": "BTC Momentum Continuation",
+                "description": "BTC break acima resistência com volume",
+                "success_rate": 0.69,
+                "avg_return": 0.22,
+                "max_drawdown": 0.15,
+                "timeframe": "1h",
+                "asset": "BTC",
+                "conditions": ["resistance_breakout", "volume_confirmation"]
+            }
+        ]
+
+    def get_backtest_recommendations(self, top_n: int = 5) -> List[Dict]:
+        """Retorna top N recomendações baseadas em backtest."""
+        try:
+            logger.info(f"🔎 Running backtest analysis for top {top_n} recommendations")
+
+            current_market_conditions = self._analyze_current_conditions()
+            scored_patterns = []
+
+            for pattern in self.patterns_db:
+                condition_score = self._evaluate_pattern_conditions(pattern, current_market_conditions)
+
+                final_score = (
+                    pattern["success_rate"] * 0.4 +
+                    condition_score * 0.3 +
+                    (pattern["avg_return"] / max(pattern["max_drawdown"], 0.01)) * 0.2 +
+                    random.uniform(0.8, 1.2) * 0.1
+                )
+
+                final_score = min(1.0, final_score)
+
+                trade_type = "LONG"
+                if "Short" in pattern["name"] or pattern["avg_return"] < 0:
+                    trade_type = "SHORT"
+
+                entry_price = 0
+                asset_key = pattern["asset"].lower()
+                if asset_key == "btc":
+                    entry_price = round(random.uniform(60000, 100000), 2)
+                elif asset_key == "gold":
+                    entry_price = round(random.uniform(2300, 2800), 2)
+                elif asset_key == "dxy":
+                    entry_price = round(random.uniform(100, 110), 2)
+                else:
+                    current_price_data = get_current_market_data()
+                    entry_price = current_price_data.get(asset_key, {}).get('current_price', 1000.0)
+                    if entry_price == 1.0:
+                        entry_price = round(random.uniform(100, 110), 2)
+
+
+                simulated_trades = random.randint(50, 200)
+                simulated_win_rate = pattern["success_rate"] * random.uniform(0.9, 1.1)
+                simulated_total_pnl = pattern["avg_return"] * random.uniform(0.8, 1.2) * 10000
+
+                backtest_details = {
+                    "strategy_tested": pattern["name"],
+                    "timeframe_backtested": f"Last {random.choice(['3 months', '6 months', '1 year'])} ({pattern['timeframe']} data)",
+                    "total_trades": simulated_trades,
+                    "winning_trades": int(simulated_trades * simulated_win_rate),
+                    "losing_trades": simulated_trades - int(simulated_trades * simulated_win_rate),
+                    "win_rate": f"{simulated_win_rate*100:.1f}%",
+                    "total_pnl": f"${simulated_total_pnl:,.2f}",
+                    "avg_pnl_per_trade": f"${simulated_total_pnl/simulated_trades:,.2f}" if simulated_trades > 0 else "$0.00",
+                    "max_drawdown": f"{pattern['max_drawdown']*100:.1f}%",
+                    "sharpe_ratio": round(random.uniform(1.0, 2.5), 2),
+                    "alpha": round(random.uniform(0.05, 0.20), 2),
+                    "key_conditions_met": [cond.replace('_', ' ') for cond in pattern["conditions"]],
+                    "recommendation_reasoning": f"Based on historical performance of '{pattern['name']}' in {pattern['timeframe']} data"
+                }
+
+                recommendation = {
+                    "pattern_name": pattern["name"],
+                    "description": pattern["description"],
+                    "symbol": SYMBOLS.get(pattern["asset"].lower(), "UNKNOWN"),
+                    "asset": pattern["asset"],
+                    "timeframe": pattern["timeframe"],
+                    "score": round(final_score, 3),
+                    "confidence": round(final_score, 3),
+                    "success_rate": pattern["success_rate"],
+                    "expected_return": f"{pattern['avg_return']*100:.1f}%",
+                    "max_drawdown": f"{pattern['max_drawdown']*100:.1f}%",
+                    "trade_type": trade_type,
+                    "entry_price": entry_price,
+                    "pattern_type": self._get_pattern_type(pattern),
+                    "trend_context": current_market_conditions["market_trend"],
+                    "trend_confidence": round(random.uniform(0.5, 0.95), 2),
+                    "timestamp": datetime.now().isoformat(),
+                    "backtest_details": backtest_details
+                }
+
+                scored_patterns.append(recommendation)
+
+            top_recommendations = sorted(scored_patterns, key=lambda x: x["score"], reverse=True)[:top_n]
+
+            logger.info(f"✅ Generated {len(top_recommendations)} backtest recommendations")
+            return top_recommendations
+
+        except Exception as e:
+            logger.error(f"❌ Error in backtest engine: {e}")
+            return []
+
+    def _analyze_current_conditions(self) -> Dict:
+        """Analisa condições atuais do mercado (simulado para backtest engine)"""
+        sentiment_level = sentiment_cache["market_mood"]
+        trend = "NEUTRAL"
+        if sentiment_level in ["EXTREME_GREED", "GREED", "STRONGLY_BULLISH", "BULLISH"]:
+            trend = "BULLISH"
+        elif sentiment_level in ["EXTREME_FEAR", "FEAR", "STRONGLY_BEARISH", "BEARISH"]:
+            trend = "BEARISH"
+
+        return {
+            "market_trend": trend,
+            "volatility": random.choice(["LOW", "MEDIUM", "HIGH"]),
+            "volume_profile": random.choice(["INCREASING", "DECREASING", "STABLE"]),
+            "sentiment": "RISK_ON" if sentiment_level in ["EXTREME_GREED", "GREED", "BULLISH", "STRONGLY_BULLISH"] else "RISK_OFF" if sentiment_level in ["EXTREME_FEAR", "FEAR", "BEARISH", "STRONGLY_BEARISH"] else "NEUTRAL",
+            "macro_backdrop": random.choice(["SUPPORTIVE", "CHALLENGING", "MIXED"])
+        }
+
+    def _evaluate_pattern_conditions(self, pattern: Dict, market_conditions: Dict) -> float:
+        """Avalia condições do padrão (simulado para backtest engine)"""
+        base_score = 0.5
+
+        if pattern["asset"] == "BTC":
+            if market_conditions["sentiment"] == "RISK_ON":
+                base_score += 0.2
+            elif market_conditions["sentiment"] == "RISK_OFF":
+                base_score -= 0.2
+
+        elif pattern["asset"] == "GOLD":
+            if market_conditions["sentiment"] == "RISK_OFF":
+                base_score += 0.2
+            elif market_conditions["sentiment"] == "RISK_ON":
+                base_score -= 0.1
+
+        if market_conditions["volatility"] == "HIGH":
+            base_score += 0.1
+
+        return max(0, min(1, base_score + random.uniform(-0.1, 0.1)))
+
+    def _get_pattern_type(self, pattern: Dict) -> str:
+        """Determina tipo de padrão (para backtest engine)"""
+        name = pattern["name"].lower()
+        if "breakout" in name:
+            return "BREAKOUT"
+        elif "momentum" in name:
+            return "TREND_FOLLOW"
+        elif "rejection" in name:
+            return "REVERSAL"
+        elif "divergence" in name:
+            return "DIVERGENCE"
+        else:
+            return "GENERAL_PATTERN"
+
+backtest_engine_instance = BacktestEngine()
+
+def run_backtest_periodically():
+    """Executa backtest e armazena recomendações no cache (para dashboard)"""
+    logger.info("Starting periodic backtest run for dashboard recommendations")
+    try:
+        recommendations = backtest_engine_instance.get_backtest_recommendations(top_n=5)
+        backtest_recommendations_cache["recommendations"] = recommendations
+        backtest_recommendations_cache["last_update"] = datetime.now().isoformat()
+        logger.info(f"✅ Dashboard Backtest completed. {len(recommendations)} recommendations cached")
+    except Exception as e:
+        logger.error(f"❌ Error during periodic dashboard backtest run: {e}")
+
+def start_backtest_scheduler():
+    """Inicia scheduler do backtest em thread separado (para dashboard)"""
+    logger.info(f"Scheduling dashboard backtest to run every {backtest_recommendations_cache['update_interval_minutes']} minutes")
+
+    def scheduler_loop():
+        run_backtest_periodically()
+        while True:
+            time.sleep(backtest_recommendations_cache["update_interval_minutes"] * 60)
+            run_backtest_periodically()
+
+    scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True)
+    scheduler_thread.start()
+    logger.info("✅ Dashboard Backtest scheduler started successfully")
+
+# 🎭 MARKET SENTIMENT SYSTEM - REAL GATE.IO INTEGRATION (PARA PAXG e dados brutos)
+async def fetch_gateio_real_sentiment():
+    """Busca dados reais de sentimento do Gate.io via API REST"""
+    try:
+        try:
+            import aiohttp
+        except ImportError:
+            logger.error("aiohttp not found. Please install it: pip install aiohttp")
+            return False
+
+        btc_orderbook_url = "https://api.gateio.ws/api/v4/spot/order_book?currency_pair=BTC_USDT&limit=20"
+        paxg_orderbook_url = "https://api.gateio.ws/api/v4/spot/order_book?currency_pair=PAXG_USDT&limit=20"
+        btc_ticker_url = "https://api.gateio.ws/api/v4/spot/tickers?currency_pair=BTC_USDT"
+
+        headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+        }
+
+        success_count = 0
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(btc_orderbook_url, headers=headers, timeout=5) as response:
+                    response.raise_for_status()
+                    btc_orderbook = await response.json()
+
+                    bids = btc_orderbook.get('bids', [])
+                    asks = btc_orderbook.get('asks', [])
+
+                    total_bid_value = sum(float(bid[1]) * float(bid[0]) for bid in bids)
+                    total_ask_value = sum(float(ask[1]) * float(ask[0]) for ask in asks)
+                    total_ob_value = total_bid_value + total_ask_value
+
+                    if total_ob_value > 0:
+                        btc_buyers_pct = (total_bid_value / total_ob_value) * 100
+                        btc_sellers_pct = (total_ask_value / total_ob_value) * 100
+                        btc_bid_ask_ratio = total_bid_value / max(total_ask_value, 1)
+
+                        sentiment_cache["btc_sentiment"]["buyers"] = btc_buyers_pct
+                        sentiment_cache["btc_sentiment"]["sellers"] = btc_sellers_pct
+                        sentiment_cache["btc_sentiment"]["total_bids"] = total_bid_value
+                        sentiment_cache["btc_sentiment"]["total_asks"] = total_ask_value
+                        sentiment_cache["btc_sentiment"]["bid_ask_ratio"] = round(btc_bid_ask_ratio, 2)
+                        sentiment_cache["btc_sentiment"]["last_update"] = datetime.now().isoformat()
+                        success_count += 1
+
+                        logger.info(f"📊 BTC Orderbook Sentiment: {btc_buyers_pct:.1f}% buyers, {btc_sellers_pct:.1f}% sellers")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to fetch BTC orderbook for sentiment: {e}")
+
+            try:
+                async with session.get(paxg_orderbook_url, headers=headers, timeout=5) as response:
+                    response.raise_for_status()
+                    paxg_orderbook = await response.json()
+
+                    bids = paxg_orderbook.get('bids', [])
+                    asks = paxg_orderbook.get('asks', [])
+
+                    total_bid_value = sum(float(bid[1]) * float(bid[0]) for bid in bids)
+                    total_ask_value = sum(float(ask[1]) * float(ask[0]) for ask in asks)
+                    total_ob_value = total_bid_value + total_ask_value
+
+                    if total_ob_value > 0:
+                        paxg_buyers_pct = (total_bid_value / total_ob_value) * 100
+                        paxg_sellers_pct = (total_ask_value / total_ob_value) * 100
+                        paxg_bid_ask_ratio = total_bid_value / max(total_ask_value, 1)
+
+                        sentiment_cache["paxg_sentiment"]["buyers"] = paxg_buyers_pct
+                        sentiment_cache["paxg_sentiment"]["sellers"] = paxg_sellers_pct
+                        sentiment_cache["paxg_sentiment"]["total_bids"] = total_bid_value
+                        sentiment_cache["paxg_sentiment"]["total_asks"] = total_ask_value
+                        sentiment_cache["paxg_sentiment"]["bid_ask_ratio"] = round(paxg_bid_ask_ratio, 2)
+                        sentiment_cache["paxg_sentiment"]["last_update"] = datetime.now().isoformat()
+                        success_count += 1
+
+                        logger.info(f"📊 PAXG Sentiment: {paxg_buyers_pct:.1f}% buyers, {paxg_sellers_pct:.1f}% sellers")
+
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to fetch PAXG orderbook: {e}")
+
+            try:
+                async with session.get(btc_ticker_url, headers=headers, timeout=5) as response:
+                    response.raise_for_status()
+                    ticker_data = await response.json()
+                    
+                    if ticker_data and len(ticker_data) > 0:
+                        ticker = ticker_data[0]
+                        change_pct_str = ticker.get('change_percentage', '0')
+                        change_pct = float(change_pct_str) if change_pct_str else 0.0
+                        btc_volume_24h = float(ticker.get('base_volume', '0'))
+
+                        sentiment_cache["btc_sentiment"]["volume_24h"] = f"${btc_volume_24h / 1_000_000_000:.1f}B" if btc_volume_24h >= 1_000_000_000 else f"${btc_volume_24h / 1_000_000:.1f}M"
+                        
+                        base_fgi = 50 
+                        
+                        if change_pct > 5: base_fgi += 20
+                        elif change_pct > 2: base_fgi += 10
+                        elif change_pct < -5: base_fgi -= 20
+                        elif change_pct < -2: base_fgi -= 10
+
+                        buyers_influence = (sentiment_cache["btc_sentiment"]["buyers"] - 50) * 0.5 
+                        base_fgi += buyers_influence
+
+                        sentiment_cache["fear_greed_index"] = max(0, min(100, int(base_fgi)))
+
+                        if sentiment_cache["fear_greed_index"] > 75:
+                            sentiment_cache["market_mood"] = "EXTREME_GREED"
+                        elif sentiment_cache["fear_greed_index"] > 55:
+                            sentiment_cache["market_mood"] = "GREED"
+                        elif sentiment_cache["fear_greed_index"] < 25:
+                            sentiment_cache["market_mood"] = "EXTREME_FEAR"
+                        elif sentiment_cache["fear_greed_index"] < 45:
+                            sentiment_cache["market_mood"] = "FEAR"
+                        else:
+                            sentiment_cache["market_mood"] = "NEUTRAL"
+
+                        success_count += 1
+
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to fetch BTC ticker for sentiment: {e}")
+
+        return success_count >= 2
+
+    except Exception as e:
+        logger.error(f"❌ General error in fetch_gateio_real_sentiment: {e}")
+        return False
+
+async def simulate_and_send_sentiment_data():
+    """Busca dados reais de sentimento do Gate.io e envia via WebSocket"""
+    logger.info("🎭 Starting REAL Gate.io sentiment monitoring and WebSocket broadcast")
+
+    while True:
+        try:
+            real_data_successfully_fetched = await fetch_gateio_real_sentiment()
+            current_time = datetime.now()
+
+            # Tenta sincronizar sentimento de notícias do bot real (que usa NewsAPI/CryptoPanic)
+            if real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer:
+                try:
+                    # O símbolo deve ser uma string como "BTC_USDT"
+                    bot_news_sentiment_score = real_trading_bot.analyzer.sentiment_analyzer.get_crypto_news_sentiment("BTC_USDT")
+                    
+                    # Usa o sentimento do bot para BTC
+                    sentiment_cache["btc_sentiment"]["buyers"] = bot_news_sentiment_score * 100
+                    sentiment_cache["btc_sentiment"]["sellers"] = (1 - bot_news_sentiment_score) * 100
+                    sentiment_cache["btc_sentiment"]["trend"] = "BULLISH" if bot_news_sentiment_score > 0.6 else "BEARISH" if bot_news_sentiment_score < 0.4 else "NEUTRAL"
+                    sentiment_cache["btc_sentiment"]["last_update"] = current_time.isoformat()
+                    logger.debug(f"Synced BTC news sentiment from bot: {bot_news_sentiment_score:.3f}")
+
+                    # Ajusta FGI baseado no sentimento de notícias do bot, dando mais peso ao FGI da Gate.io se houver
+                    if real_data_successfully_fetched:
+                        # Se já pegou dados da Gate.io (Orderbook, Ticker), combina com o sentimento de notícias
+                        combined_fgi_influence = (sentiment_cache["fear_greed_index"] + (bot_news_sentiment_score - 0.5) * 40) / 2
+                        sentiment_cache["fear_greed_index"] = max(0, min(100, int(combined_fgi_influence)))
+                    else: # Se não pegou dados da Gate.io, FGI é apenas do sentimento de notícias
+                        sentiment_cache["fear_greed_index"] = max(0, min(100, int(bot_news_sentiment_score * 100)))
+
+                except Exception as e:
+                    logger.warning(f"Failed to sync BTC news sentiment from bot: {e}. Using dashboard's own sentiment calculation for overall mood.")
+            else:
+                 logger.warning("Trading bot sentiment analyzer is not available. Using dashboard's own sentiment calculation for overall mood.")
+
+
+            btc_buyers_current = sentiment_cache["btc_sentiment"]["buyers"]
+            paxg_buyers_current = sentiment_cache["paxg_sentiment"]["buyers"]
+
+            if btc_buyers_current > 75:
+                sentiment_cache["btc_sentiment"]["trend"] = "STRONGLY_BULLISH"
+            elif btc_buyers_current > 60:
+                sentiment_cache["btc_sentiment"]["trend"] = "BULLISH"
+            elif btc_buyers_current < 25:
+                sentiment_cache["btc_sentiment"]["trend"] = "STRONGLY_BEARISH"
+            elif btc_buyers_current < 40:
+                sentiment_cache["btc_sentiment"]["trend"] = "BEARISH"
+            else:
+                sentiment_cache["btc_sentiment"]["trend"] = "NEUTRAL"
+
+            if paxg_buyers_current > 70:
+                sentiment_cache["paxg_sentiment"]["trend"] = "STRONGLY_BULLISH"
+            elif paxg_buyers_current > 55:
+                sentiment_cache["paxg_sentiment"]["trend"] = "BULLISH"
+            elif paxg_buyers_current < 30:
+                sentiment_cache["paxg_sentiment"]["trend"] = "STRONGLY_BEARISH"
+            elif paxg_buyers_current < 45:
+                sentiment_cache["paxg_sentiment"]["trend"] = "BEARISH"
+            else:
+                sentiment_cache["paxg_sentiment"]["trend"] = "NEUTRAL"
+            
+            if sentiment_cache["fear_greed_index"] > 75:
+                sentiment_cache["market_mood"] = "EXTREME_GREED"
+            elif sentiment_cache["fear_greed_index"] > 55:
+                sentiment_cache["market_mood"] = "GREED"
+            elif sentiment_cache["fear_greed_index"] < 25:
+                sentiment_cache["market_mood"] = "EXTREME_FEAR"
+            elif sentiment_cache["fear_greed_index"] < 45:
+                sentiment_cache["market_mood"] = "FEAR"
+            else:
+                sentiment_cache["market_mood"] = "NEUTRAL"
+
+            if real_data_successfully_fetched or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer): # Se qualquer fonte de dados real funcionou
+                history_point = {
+                    "timestamp": current_time.isoformat(),
+                    "btc_buyers": round(sentiment_cache["btc_sentiment"]["buyers"], 2),
+                    "btc_sellers": round(sentiment_cache["btc_sentiment"]["sellers"], 2),
+                    "paxg_buyers": round(sentiment_cache["paxg_sentiment"]["buyers"], 2),
+                    "paxg_sellers": round(sentiment_cache["paxg_sentiment"]["sellers"], 2),
+                    "fear_greed": sentiment_cache["fear_greed_index"],
+                    "volume_estimate": sentiment_cache["btc_sentiment"]["volume_24h"],
+                    "market_mood": sentiment_cache["market_mood"],
+                    "data_source": "REAL_GATEIO" if real_data_successfully_fetched else "REAL_NEWS_BOT"
+                }
+                sentiment_cache["sentiment_history"].append(history_point)
+                
+                if len(sentiment_cache["sentiment_history"]) > 144:
+                    sentiment_cache["sentiment_history"] = sentiment_cache["sentiment_history"][-144:]
+
+            sentiment_cache["websocket_connected"] = real_data_successfully_fetched # Ou adicione lógica para incluir o sentimento do bot aqui
+
+            sentiment_data_for_ws = {
+                "timestamp": current_time.isoformat(),
+                "status": "live" if real_data_successfully_fetched else "api_failed",
+                "data_source": "Gate.io API" if real_data_successfully_fetched else "Gate.io API Failed",
+                "btc": {
+                    "buyers": round(sentiment_cache["btc_sentiment"]["buyers"], 2),
+                    "sellers": round(sentiment_cache["btc_sentiment"]["sellers"], 2),
+                    "trend": sentiment_cache["btc_sentiment"]["trend"],
+                    "bid_ask_ratio": sentiment_cache["btc_sentiment"]["bid_ask_ratio"],
+                    "total_volume": round(sentiment_cache["btc_sentiment"]["total_bids"] + sentiment_cache["btc_sentiment"]["total_asks"], 2)
+                },
+                "paxg": {
+                    "buyers": round(sentiment_cache["paxg_sentiment"]["buyers"], 2),
+                    "sellers": round(sentiment_cache["paxg_sentiment"]["sellers"], 2),
+                    "trend": sentiment_cache["paxg_sentiment"]["trend"],
+                    "bid_ask_ratio": sentiment_cache["paxg_sentiment"]["bid_ask_ratio"],
+                    "total_volume": round(sentiment_cache["paxg_sentiment"]["total_bids"] + sentiment_cache["paxg_sentiment"]["total_asks"], 2)
+                },
+                "market_mood": sentiment_cache["market_mood"],
+                "fear_greed_index": sentiment_cache["fear_greed_index"],
+                "volume_24h": sentiment_cache["btc_sentiment"]["volume_24h"],
+                "websocket_status": {
+                    "connected": True,
+                    "real_data": real_data_successfully_fetched,
+                    "api_status": "connected" if real_data_successfully_fetched else "failed"
+                }
+            }
+
+            disconnected_clients = []
+            for connection in list(active_sentiment_websocket_connections):
+                try:
+                    await connection.send_json(sentiment_data_for_ws)
+                    logger.debug(f"Successfully sent sentiment data to client {connection.client}")
+                except Exception as e:
+                    logger.warning(f"Error sending sentiment data to WebSocket client {connection.client}: {e}", exc_info=True)
+                    disconnected_clients.append(connection)
+
+            for client in disconnected_clients:
+                if client in active_sentiment_websocket_connections:
+                    active_sentiment_websocket_connections.remove(client)
+
+        except Exception as e:
+            logger.error(f"❌ General error in sentiment monitoring main loop: {e}")
+
+        await asyncio.sleep(10)
+
+async def fetch_gateio_ohlcv(symbol_pair: str, interval: str, limit: int = 200) -> pd.DataFrame:
+    """
+    Busca dados OHLCV (candlesticks) da Gate.io para FUTUROS PERPÉTUOS usando API pública.
+    CORRIGIDO para processar o formato JSON real da API.
+    
+    symbol_pair: Ex: "BTC_USDT" (contrato futuro na Gate.io)
+    interval: Ex: "1m", "5m", "1h", "1d"
+    limit: Número de candles a retornar (máximo 1000)
+    
+    Retorna: DataFrame pandas com colunas [Open, High, Low, Close, Volume] e index datetime
+    """
+    base_url = "https://api.gateio.ws/api/v4/futures/usdt/candlesticks"
+    
+    params = {
+        "contract": symbol_pair,
+        "interval": interval,
+        "limit": min(limit, 1000)
+    }
+    
+    headers = {
+        'Accept': 'application/json',
+        'User-Agent': 'TradingDashboard/1.0'
+    }
+    
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            logger.info(f"🔍 Fetching Gate.io Futures data: {symbol_pair} ({interval}, limit {limit})")
+            
+            async with session.get(base_url, params=params, headers=headers) as response:
+                if response.status != 200:
+                    logger.error(f"❌ Gate.io API returned status {response.status} for {symbol_pair}")
+                    error_text = await response.text()
+                    logger.error(f"Response: {error_text[:500]}")
+                    return pd.DataFrame()
+                
+                raw_data = await response.json()
+                logger.info(f"✅ Gate.io Futures: Received {len(raw_data)} candles for {symbol_pair}")
+                
+                if not raw_data or len(raw_data) == 0:
+                    logger.warning(f"⚠️ No candles returned for {symbol_pair}")
+                    return pd.DataFrame()
+                
+                processed_data = []
+                for candle in raw_data:
                     try:
-                        df_data.append({
-                            'timestamp': pd.to_datetime(int(candle['t']), unit='s'),
+                        processed_candle = {
                             'Open': float(candle['o']),
                             'High': float(candle['h']),
                             'Low': float(candle['l']),
                             'Close': float(candle['c']),
-                            'Volume': float(candle['v'])
-                        })
+                            'Volume': float(candle['v']),
+                            'timestamp': pd.to_datetime(int(candle['t']), unit='s')
+                        }
+                        processed_data.append(processed_candle)
                     except (KeyError, ValueError, TypeError) as e:
-                        logging.getLogger(__name__).warning(f"Erro ao processar candle Gate.io: {e} - {candle}")
+                        logger.warning(f"⚠️ Skipping invalid candle for {symbol_pair}: {e}")
                         continue
                 
-                if df_data:
-                    df = pd.DataFrame(df_data)
-                    df.set_index('timestamp', inplace=True)
-                    return df.dropna().sort_index()
-        
-        logging.getLogger(__name__).warning(f"Gate.io API status {response.status_code} ou dados vazios para {symbol}. Response: {response.text[:200]}...")
-        return pd.DataFrame()
-        
-    except requests.exceptions.Timeout:
-        logging.getLogger(__name__).warning(f"Gate.io Timeout para {symbol} {interval}. URL: {url} Params: {params}")
-        return pd.DataFrame()
-    except requests.exceptions.RequestException as e:
-        logging.getLogger(__name__).warning(f"Gate.io Request Error para {symbol}: {e}")
-        return pd.DataFrame()
-    except json.JSONDecodeError:
-        logging.getLogger(__name__).warning(f"Gate.io JSON Decode Error para {symbol}. Response: {response.text[:200]}...")
-        return pd.DataFrame()
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Erro inesperado em get_gateio_data_safe para {symbol}: {e}")
-        return pd.DataFrame()
-
-# ============================================================================
-# 🚀 FUNÇÕES TALIB ADICIONADAS
-# ============================================================================
-
-def calcular_angulo(series: np.ndarray) -> float:
-    """
-    Calcula o ângulo (em graus) entre o penúltimo e o último ponto,
-    considerando uma distância de 2 períodos.
-    Retorna 0 se houver dados insuficientes ou NaN.
-    """
-    if not TALIB_AVAILABLE:
-        return 0.0 # Retorna neutro se TALIB não estiver disponível
-    if len(series) < 3 or np.isnan(series[-3]) or np.isnan(series[-1]):
-        return 0.0
-    angulo_rad = np.arctan2((series[-1] - series[-3]), 2)  # 2 candles de distância
-    return np.degrees(angulo_rad)
-
-def calcular_supertrend_talib(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int = 10, multiplier: float = 3.0) -> np.ndarray:
-    """
-    Calcula a linha do SuperTrend usando a implementação TALIB para ATR e lógica customizada.
-    Retorna um array numpy com a linha SuperTrend.
-    """
-    if not TALIB_AVAILABLE:
-        return np.full_like(close, np.nan) # Retorna NaN se TALIB não estiver disponível
-
-    if len(high) < period or len(low) < period or len(close) < period:
-        return np.full_like(close, np.nan) # Dados insuficientes
-
-    atr = talib.ATR(high, low, close, timeperiod=period)
-    
-    # Certifique-se de que `atr` tem o mesmo comprimento de `close` preenchendo o início com NaN
-    # A função ATR do talib retorna um array menor no início, preenchemos com NaN para alinhamento
-    atr_full = np.concatenate((np.full(period - 1, np.nan), atr))
-
-
-    hl2 = (high + low) / 2
-    upperband = hl2 + (multiplier * atr_full)
-    lowerband = hl2 - (multiplier * atr_full)
-    
-    final_upperband = np.copy(upperband)
-    final_lowerband = np.copy(lowerband)
-    supertrend_line = np.full_like(close, np.nan) # Renomeado para evitar conflito com 'supertrend'
-
-    # Inicializa o primeiro valor do supertrend_line baseado na primeira banda válida
-    for i in range(len(close)):
-        if not np.isnan(upperband[i]) and not np.isnan(lowerband[i]): # Garante que as bandas iniciais são válidas
-            if close[i] > upperband[i]:
-                supertrend_line[i] = lowerband[i]
-            elif close[i] < lowerband[i]:
-                supertrend_line[i] = upperband[i]
-            else: # Se o preço está entre as bandas no primeiro ponto
-                 supertrend_line[i] = lowerband[i] # Default para uptrend na ausência de uma direção clara
-            break # Sair do loop após inicializar o primeiro ponto válido
-
-    for i in range(1, len(close)):
-        if np.isnan(close[i]) or np.isnan(upperband[i]) or np.isnan(lowerband[i]) or np.isnan(final_upperband[i-1]) or np.isnan(final_lowerband[i-1]):
-            supertrend_line[i] = supertrend_line[i-1] if i > 0 else np.nan # Mantém o último valor válido ou nan
-            final_upperband[i] = final_upperband[i-1] if i > 0 else np.nan
-            final_lowerband[i] = final_lowerband[i-1] if i > 0 else np.nan
-            continue
-
-        # Final Upper Band
-        if close[i - 1] <= final_upperband[i - 1]:
-            final_upperband[i] = min(upperband[i], final_upperband[i - 1])
-        else:
-            final_upperband[i] = upperband[i] # Se rompeu a banda superior, reset
-
-        # Final Lower Band
-        if close[i - 1] >= final_lowerband[i - 1]:
-            final_lowerband[i] = max(lowerband[i], final_lowerband[i - 1])
-        else:
-            final_lowerband[i] = lowerband[i] # Se rompeu a banda inferior, reset
-
-        # Determine SuperTrend value
-        if close[i] > final_upperband[i - 1]: # If current price is above previous final upper band
-            supertrend_line[i] = final_lowerband[i]
-        elif close[i] < final_lowerband[i - 1]: # If current price is below previous final lower band
-            supertrend_line[i] = final_upperband[i]
-        else: # If price is within the previous bands, maintain previous SuperTrend value
-            supertrend_line[i] = supertrend_line[i-1]
-
-    return supertrend_line
-
-def avaliar_entrada(df_1m: pd.DataFrame, df_15m: pd.DataFrame) -> str:
-    """
-    Avalia condições de entrada combinando múltiplos indicadores TALIB em dois timeframes.
-    Retorna "ENTRADA FORTE", "AGUARDAR CONFIRMAÇÃO DE FORÇA" ou "SEM SINAL".
-    """
-    if not TALIB_AVAILABLE:
-        return "SEM SINAL" # Sem TALIB, não há avaliação
-
-    # Verificação de dados mínimos
-    if len(df_1m) < 30 or len(df_15m) < 30: # Ajuste conforme necessário para os períodos dos indicadores
-        return "SEM SINAL"
-
-    close_1m = df_1m['Close'].values
-    high_1m = df_1m['High'].values
-    low_1m = df_1m['Low'].values
-    volume_1m = df_1m['Volume'].values
-
-    close_15m = df_15m['Close'].values
-    high_15m = df_15m['High'].values
-    low_15m = df_15m['Low'].values
-    # volume_15m seria para OBV em 15m, mas sua função usa volume_1m
-
-    # STOCHRSI 1m
-    # Certifique-se de que os arrays são grandes o suficiente para talib
-    if len(close_1m) < 14 + 3: # min period + fastk_period
-        return "SEM SINAL"
-    fastk_1m, fastd_1m = talib.STOCHRSI(close_1m, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
-    
-    # Verificar NaNs no final das séries do talib
-    if np.isnan(fastk_1m[-1]) or np.isnan(fastd_1m[-1]) or len(fastk_1m) < 3:
-        return "SEM SINAL"
-
-    angulo_1m = calcular_angulo(fastk_1m)
-    cruzamento_1m = fastk_1m[-2] < fastd_1m[-2] and fastk_1m[-1] > fastd_1m[-1]
-    curvatura_positiva = False
-    if len(fastk_1m) >= 3 and not np.isnan(fastk_1m[-3]) and not np.isnan(fastk_1m[-2]) and not np.isnan(fastk_1m[-1]):
-        curvatura_positiva = fastk_1m[-3] > fastk_1m[-2] and fastk_1m[-2] < fastk_1m[-1]  # forma de “U” na %K
-
-    # STOCHRSI 15m
-    if len(close_15m) < 14 + 3: # min period + fastk_period
-        return "SEM SINAL"
-    fastk_15m, fastd_15m = talib.STOCHRSI(close_15m, timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0)
-
-    if np.isnan(fastk_15m[-1]) or np.isnan(fastd_15m[-1]) or len(fastk_15m) < 3:
-        return "SEM SINAL"
-
-    angulo_15m = calcular_angulo(fastk_15m)
-    cond_15m = fastk_15m[-1] > fastd_15m[-1] and fastk_15m[-1] > 20 and angulo_15m > 20
-
-    # MACD 15m
-    if len(close_15m) < 26 + 9: # slowperiod + signalperiod
-        return "SEM SINAL"
-    macd, signal, hist = talib.MACD(close_15m, fastperiod=12, slowperiod=26, signalperiod=9)
-
-    if np.isnan(hist[-1]) or len(hist) < 3:
-        return "SEM SINAL"
-
-    slope_macd = hist[-1] - hist[-3]
-    cond_macd = macd[-1] > signal[-1] and slope_macd > 0
-
-    # SuperTrend 15m (usando a nova função talib)
-    if len(high_15m) < 10 or len(low_15m) < 10 or len(close_15m) < 10:
-        return "SEM SINAL"
-    supertrend_line = calcular_supertrend_talib(high_15m, low_15m, close_15m)
-    
-    if np.isnan(supertrend_line[-1]):
-        return "SEM SINAL"
-
-    cond_supertrend = close_15m[-1] > supertrend_line[-1] # Condição para LONG
-
-    # Volume força 1m
-    if len(volume_1m) < 20:
-        return "SEM SINAL"
-    vol_sma = np.mean(volume_1m[-20:])
-    cond_volume = volume_1m[-1] > vol_sma
-
-    # Decisão final
-    if (cruzamento_1m and curvatura_positiva and angulo_1m > 45 and
-        cond_15m and cond_macd and cond_supertrend and cond_volume):
-        return "ENTRADA FORTE"
-    elif cruzamento_1m and curvatura_positiva and angulo_1m > 45 and cond_15m:
-        return "AGUARDAR CONFIRMAÇÃO DE FORÇA"
-    else:
-        return "SEM SINAL"
-
-
-# ============================================================================
-# 🧠 CLASSES DE MACHINE LEARNING (continuam iguais...)
-# ============================================================================
-
-@dataclass
-class AIFeatures:
-    """Features para o modelo de ML"""
-    # Indicadores técnicos
-    rsi: float
-    supertrend_dir: int  # 1 ou -1
-    vwap_distance: float  # % distância do VWAP
-    volume_ratio: float
-    atr_normalized: float
-    bollinger_position: float # Posição em relação às bandas de Bollinger (0-1)
-    macd_signal_diff: float # Diferença entre MACD e linha de sinal
-
-    # Features de candles
-    candle_size: float
-    upper_shadow: float
-    lower_shadow: float
-    
-    # Features de contexto
-    trend_strength: float
-    volatility_regime: int  # 0=baixa, 1=normal, 2=alta
-    time_of_day: int  # Hora do dia (0-23)
-    
-    # Features de momentum
-    price_momentum_5: float    # Momentum 5 períodos
-    price_momentum_10: float  # Momentum 10 períodos
-    volume_momentum: float
-    
-    # Features de padrão
-    pattern_score: float  # Score do pattern matcher
-
-    # Novas features da análise TALIB avançada
-    talib_entrada_score: float # 0.0 (SEM SINAL), 0.5 (AGUARDAR), 1.0 (ENTRADA FORTE)
-    
-    def to_array(self) -> np.ndarray:
-        """Converte para array numpy para ML"""
-        return np.array([
-            self.rsi, self.supertrend_dir, self.vwap_distance,
-            self.volume_ratio, self.atr_normalized, self.bollinger_position,
-            self.macd_signal_diff, self.candle_size, self.upper_shadow,
-            self.lower_shadow, self.trend_strength, self.volatility_regime,
-            self.time_of_day, self.price_momentum_5, self.price_momentum_10,
-            self.volume_momentum, self.pattern_score,
-            self.talib_entrada_score # Incluída a nova feature
-        ])
-
-class PatternMatcher:
-    """Detecção de padrões históricos com scoring"""
-    
-    def __init__(self, memory_size: int = 1000):
-        self.patterns = defaultdict(list)  # {pattern_hash: [outcomes]}
-        self.memory_size = memory_size
-        
-    def extract_pattern(self, df: pd.DataFrame) -> str:
-        """Extrai padrão dos últimos candles"""
-        if len(df) < 5:
-            return "insufficient_data"
-        
-        recent = df.tail(5)
-        
-        # Padrão baseado em direção dos candles e volume
-        directions = []
-        volumes = []
-        
-        for i in range(len(recent)):
-            candle = recent.iloc[i]
-            direction = 'up' if candle['Close'] > candle['Open'] else 'down' # Use 'Close' and 'Open'
-            vol_level = 'high' if candle['Volume'] > recent['Volume'].mean() else 'low' # Use 'Volume'
-            directions.append(direction)
-            volumes.append(vol_level)
-        
-        pattern = f"{'_'.join(directions)}__{'_'.join(volumes)}"
-        return pattern
-    
-    def add_outcome(self, pattern: str, outcome: bool):
-        """Adiciona resultado de um padrão"""
-        self.patterns[pattern].append(1 if outcome else 0)
-        
-        # Limitar memória
-        if len(self.patterns[pattern]) > self.memory_size:
-            self.patterns[pattern] = self.patterns[pattern][-self.memory_size:]
-    
-    def get_pattern_score(self, pattern: str) -> float:
-        """Retorna score de sucesso do padrão (0-1)"""
-        if pattern not in self.patterns or len(self.patterns[pattern]) < 5:
-            return 0.5  # Neutro para padrões novos
-        
-        outcomes = self.patterns[pattern]
-        success_rate = sum(outcomes) / len(outcomes)
-        
-        # Ajustar confiança baseado no número de amostras
-        confidence_factor = min(1.0, len(outcomes) / 20)  # Máxima confiança com 20+ amostras
-        
-        return 0.5 + (success_rate - 0.5) * confidence_factor
-
-class SentimentAnalyzer:
-    """Análise de sentimento simplificada, agora com múltiplas fontes de notícias."""
-    
-    def __init__(self):
-        self.sentiment_cache = {}
-        self.cache_expiry = timedelta(hours=6) # Ajustado para 6 horas para mitigar 429 Client Error
-        self.last_update = {}
-        self.logger = logging.getLogger('SentimentAnalyzer')
-        self.cryptopanic_api_key = CRYPTOPANIC_API_KEY
-        self.news_api_key = NEWS_API_KEY # Adicionado para uso interno
-        
-    def get_crypto_news_sentiment(self, symbol: str) -> float:
-        """
-        Obtém sentimento das notícias de várias fontes relevantes.
-        Prioriza Wall Street Journal, notícias de negócios dos EUA e CryptoPanic.
-        """
-        cache_key = f"{symbol}_sentiment_multi_source"
-        now = datetime.now()
-        
-        # Verificar cache
-        if (cache_key in self.sentiment_cache and 
-            cache_key in self.last_update and
-            (now - self.last_update[cache_key]) < self.cache_expiry):
-            self.logger.debug(f"Sentimento para {symbol} do cache.")
-            return self.sentiment_cache[cache_key]
-        
-        sentiment_scores = []
-        
-        # 1. Sentimento da CryptoPanic (focado em cripto) - Alta prioridade
-        if self.cryptopanic_api_key and self.cryptopanic_api_key != "DUMMY_KEY_CRYPTOPANIC":
-            cryptopanic_text = self._fetch_news_from_cryptopanic(symbol.split('_')[0])
-            if cryptopanic_text:
-                cryptopanic_sentiment = self.analyze_text_sentiment_real(cryptopanic_text)
-                self.logger.info(f"Sentimento CryptoPanic para {symbol}: {cryptopanic_sentiment:.3f}")
-                sentiment_scores.append(cryptopanic_sentiment * 1.2) # Give slightly more weight to direct crypto news
-            else:
-                self.logger.debug(f"Nenhuma notícia da CryptoPanic encontrada para {symbol} ou falha na API.")
-
-
-        # 2. Sentimento do Wall Street Journal (WSJ)
-        search_query_wsj = symbol.split('_')[0] if symbol in TRADING_SYMBOLS else "crypto"
-        wsj_text = self._fetch_news_from_newsapi(q=search_query_wsj, domains="wsj.com")
-        if wsj_text:
-            wsj_sentiment = self.analyze_text_sentiment_real(wsj_text)
-            self.logger.info(f"Sentimento WSJ para {symbol}: {wsj_sentiment:.3f}")
-            sentiment_scores.append(wsj_sentiment)
-        else:
-            self.logger.debug(f"Nenhuma notícia do WSJ encontrada para {symbol} ou falha na API.")
-
-        # 3. Sentimento de Negócios dos EUA
-        search_query_us_biz = symbol.split('_')[0] if symbol in TRADING_SYMBOLS else "crypto"
-        us_business_text = self._fetch_news_from_newsapi(country="us", category="business", q=search_query_us_biz)
-        if us_business_text:
-            us_business_sentiment = self.analyze_text_sentiment_real(us_business_text)
-            self.logger.info(f"Sentimento de Negócios EUA para {symbol}: {us_business_sentiment:.3f}")
-            sentiment_scores.append(us_business_sentiment)
-        else:
-            self.logger.debug(f"Nenhuma notícia de negócios dos EUA encontrada para {symbol} ou falha na API.")
-
-        # 4. Sentimento geral de cripto (como fallback/complemento)
-        general_crypto_text = self._fetch_news_from_newsapi(q=symbol.split('_')[0] + " crypto")
-        if general_crypto_text:
-            general_crypto_sentiment = self.analyze_text_sentiment_real(general_crypto_text)
-            self.logger.info(f"Sentimento Geral Cripto para {symbol}: {general_crypto_sentiment:.3f}")
-            sentiment_scores.append(general_crypto_sentiment)
-        else:
-            self.logger.debug(f"Nenhuma notícia geral de cripto encontrada para {symbol} ou falha na API.")
-
-        # Calcular sentimento médio, ou padrão se não houver dados
-        final_sentiment = 0.5
-        if sentiment_scores:
-            final_sentiment = np.mean(sentiment_scores)
-        else:
-            self.logger.warning(f"Nenhuma notícia de sentimento real capturada para {symbol}. Usando sentimento padrão (0.5).")
-            # Adicionar uma pequena aleatoriedade para simular variação mesmo sem dados
-            import random
-            final_sentiment = 0.5 + random.uniform(-0.05, 0.05) 
-        
-        self.sentiment_cache[cache_key] = final_sentiment
-        self.last_update[cache_key] = now
-        
-        return final_sentiment
-    
-    def _fetch_news_from_cryptopanic(self, currency_code: str, limit: int = 10) -> str:
-        """
-        Busca notícias de criptomoedas da CryptoPanic API.
-        currency_code deve ser um código de moeda (ex: "BTC", "ETH").
-        """
-        if not self.cryptopanic_api_key or self.cryptopanic_api_key == "DUMMY_KEY_CRYPTOPANIC":
-            self.logger.warning("CRYPTOPANIC_API_KEY não configurada. Não é possível buscar notícias da CryptoPanic.")
-            return ""
-
-        base_url = "https://cryptopanic.com/api/v1/posts/"
-        params = {
-            "auth_token": self.cryptopanic_api_key,
-            "currencies": currency_code,
-            "public": "true",
-            "kind": "news",        # Pode ser: news, media ou all
-            "filter": "important", # Pode usar: bullish, bearish, hot, rising, etc.
-            "limit": limit
-        }
-
-        try:
-            response = requests.get(base_url, params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-
-            all_text = " ".join([
-                item.get("title", "") + " " + (item.get("url", "") or "") # CryptoPanic descriptions are often just URLs in API
-                for item in data.get("results", [])
-                if item.get("title")
-            ])
-            return all_text
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Erro ao conectar com CryptoPanic API: {e}")
-            return ""
-        except json.JSONDecodeError:
-            self.logger.error("Erro ao decodificar JSON da CryptoPanic API.")
-            return ""
-        except Exception as e:
-            self.logger.error(f"Erro inesperado ao buscar notícias da CryptoPanic: {e}")
-            return ""
-
-
-    def _fetch_news_from_newsapi(self, q: str = None, domains: str = None, country: str = None, category: str = None) -> str:
-        """
-        Função auxiliar para buscar notícias da NewsAPI com base em parâmetros.
-        Retorna uma string concatenada de títulos e descrições.
-        """
-        if not self.news_api_key: # Usar self.news_api_key
-            self.logger.warning("NEWS_API_KEY não configurada. Não é possível buscar notícias reais.")
-            return ""
-        
-        url = "https://newsapi.org/v2/everything" # Default to everything endpoint
-        params = {
-            'apiKey': self.news_api_key, # Usar self.news_api_key
-            'language': 'en',
-            'sortBy': 'publishedAt', # Always get most recent
-            'pageSize': 20 # Get a reasonable number of articles
-        }
-        
-        if q:
-            params['q'] = q
-        if domains:
-            params['domains'] = domains
-            url = "https://newsapi.org/v2/everything" # Explicitly use 'everything' endpoint for domains
-        
-        # If country and category are provided, use 'top-headlines' endpoint
-        if country and category:
-            params['country'] = country
-            params['category'] = category
-            url = "https://newsapi.org/v2/top-headlines"
-            # For top-headlines, 'q' is optional. If only country/category, NewsAPI uses it.
-            # If 'q' is also present, it's applied as a filter.
-        elif country and not category: # If only country is specified (for top-headlines)
-            params['country'] = country
-            url = "https://newsapi.org/v2/top-headlines"
-
-        # NewsAPI requires either 'q' or 'sources' or 'country' + 'category' for top-headlines
-        # For 'everything', it requires 'q' or 'sources' or 'domains'.
-        # Ensure at least one required parameter is present based on the chosen URL/endpoint.
-        if url == "https://newsapi.org/v2/top-headlines":
-            if not (country or params.get('q')): # For top-headlines, need country OR q
-                 self.logger.warning("Parâmetros insuficientes para top-headlines NewsAPI.")
-                 return ""
-        elif url == "https://newsapi.org/v2/everything":
-            if not (q or domains): # For everything, need q OR domains OR sources (sources not implemented here)
-                self.logger.warning("Parâmetros insuficientes para everything NewsAPI.")
-                return ""
-
-
-        try:
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            articles = data.get('articles', [])
-            
-            all_text = " ".join([
-                article.get('title', '') + " " + (article.get('description', '') or '')
-                for article in articles
-                if article.get('title') or article.get('description')
-            ])
-            return all_text
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Erro ao conectar com NewsAPI (URL: {url}, Params: {params}): {e}")
-            return ""
-        except json.JSONDecodeError:
-            self.logger.error("Erro ao decodificar JSON da NewsAPI.")
-            return ""
-        except Exception as e:
-            self.logger.error(f"Erro inesperado ao buscar notícias da NewsAPI: {e}")
-            return ""
-    
-    def analyze_text_sentiment_real(self, text: str) -> float:
-        """Analisa sentimento de texto usando TextBlob."""
-        if not SENTIMENT_AVAILABLE or not text:
-            return 0.5
-        
-        try:
-            blob = TextBlob(text)
-            polarity = blob.sentiment.polarity  # -1 a 1
-            return (polarity + 1) / 2  # Converter para 0-1 (0 = muito negativo, 1 = muito positivo)
-        except Exception as e:
-            self.logger.error(f"Erro ao analisar sentimento de texto: {e}")
-            return 0.5
-
-class MLPredictor:
-    """Sistema de Machine Learning para predição de sinais"""
-    
-    def __init__(self, environment: str):
-        self.environment = environment
-        self.model = None
-        self.scaler = StandardScaler()
-        self.feature_names = [] # This could be populated dynamically later
-        self.training_data = []
-        self.last_retrain = None
-        self.model_accuracy = 0.0
-        
-        # Configurar logger
-        self.logger = logging.getLogger('AIPredictor')
-        
-        # Criar diretório para modelos
-        os.makedirs(AI_CONFIG['model_save_path'], exist_ok=True)
-        
-        # Tentar carregar modelo existente
-        self.load_model()
-    
-    def extract_features(self, df: pd.DataFrame, pattern_score: float = 0.5, symbol: str = "") -> Optional[AIFeatures]:
-        """Extrai features dos dados OHLCV, incluindo a nova feature TALIB."""
-        if len(df) < 50: # Ensure enough data for indicators, especially for TALIB
-            self.logger.debug(f"Dados insuficientes para extrair features para {symbol}. Len: {len(df)}")
-            return None
-        
-        try:
-            current = df.iloc[-1]
-            
-            # === Indicadores técnicos tradicionais ===
-            rsi = ta.momentum.rsi(df['Close'], window=14).iloc[-1]
-            supertrend_dir = self.calculate_supertrend_direction(df) # Usa a versão atualizada do SuperTrend
-            
-            # VWAP
-            vwap = self.calculate_vwap(df).iloc[-1]
-            vwap_distance = ((current['Close'] - vwap) / vwap) * 100 if vwap > 0 else 0.0
-            
-            # Volume
-            volume_ma = df['Volume'].rolling(20).mean().iloc[-1]
-            volume_ratio = current['Volume'] / volume_ma if volume_ma > 0 else 1.0
-            
-            # ATR normalizado
-            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], 14).iloc[-1]
-            atr_normalized = atr / current['Close'] * 100 if current['Close'] > 0 else 0.0
-            
-            # Bollinger Bands Position
-            window = 20
-            window_dev = 2
-            bb = ta.volatility.BollingerBands(df['Close'], window=window, window_dev=window_dev)
-            bb_upper = bb.bollinger_hband().iloc[-1]
-            bb_lower = bb.bollinger_lband().iloc[-1]
-            
-            bollinger_position = 0.5 # Default to middle if bands are too narrow or invalid
-            if not pd.isna(bb_upper) and not pd.isna(bb_lower) and (bb_upper - bb_lower) > 0:
-                bollinger_position = (current['Close'] - bb_lower) / (bb_upper - bb_lower)
-            
-            # MACD Signal Difference
-            macd = ta.trend.macd(df['Close']).iloc[-1]
-            macd_signal = ta.trend.macd_signal(df['Close']).iloc[-1]
-            macd_signal_diff = macd - macd_signal if not pd.isna(macd) and not pd.isna(macd_signal) else 0.0
-            
-            # Features de candle
-            candle_size = abs(current['Close'] - current['Open']) / current['Open'] * 100 if current['Open'] > 0 else 0.0
-            body_size = abs(current['Close'] - current['Open'])
-            upper_shadow = (current['High'] - max(current['Open'], current['Close'])) / body_size if body_size > 0 else 0
-            lower_shadow = (min(current['Open'], current['Close']) - current['Low']) / body_size if body_size > 0 else 0
-            
-            # Trend strength
-            ma10 = df['Close'].rolling(10).mean()
-            if len(ma10) >= 5 and ma10.iloc[-5] > 0:
-                trend_strength = (ma10.iloc[-1] - ma10.iloc[-5]) / ma10.iloc[-5] * 100
-            else:
-                trend_strength = 0.0
-            
-            # Regime de volatilidade
-            volatility_pct = df['Close'].pct_change().std() * 100 if len(df['Close'].pct_change().dropna()) > 0 else 0.0
-            if volatility_pct < 1.0:
-                volatility_regime = 0  # Baixa
-            elif volatility_pct > 3.0:
-                volatility_regime = 2  # Alta
-            else:
-                volatility_regime = 1  # Normal
-            
-            # Hora do dia
-            time_of_day = datetime.now().hour
-            
-            # Momentum
-            price_momentum_5 = ((current['Close'] - df['Close'].iloc[-6]) / df['Close'].iloc[-6] * 100) if len(df) >= 6 and df['Close'].iloc[-6] > 0 else 0
-            price_momentum_10 = ((current['Close'] - df['Close'].iloc[-11]) / df['Close'].iloc[-11] * 100) if len(df) >= 11 and df['Close'].iloc[-11] > 0 else 0
-            volume_momentum = ((current['Volume'] - df['Volume'].iloc[-6]) / df['Volume'].iloc[-6] * 100) if len(df) >= 6 and df['Volume'].iloc[-6] > 0 else 0
-            
-            # === NOVA FEATURE: TALIB Entrada Score ===
-            talib_entrada_score = 0.0 # Valor padrão
-            if TALIB_AVAILABLE and symbol:
-                # Obtenha os DataFrames de 1m e 15m do cache do analyzer (assumindo que analyzer é passado ou acessível)
-                # IMPORTANTE: `df` aqui é o DataFrame principal (e.g., 5m), então use-o como df_1m se for o caso.
-                # Para backtest, df_1m e df_15m serão preenchidos pelo simulador.
-                df_1m_talib = df # Assumindo que a função é chamada com df_5m como o principal
+                if not processed_data:
+                    logger.error(f"❌ No valid candles processed for {symbol_pair}")
+                    return pd.DataFrame()
                 
-                # Para acesso ao cache do analyzer, a instância do analyzer precisa ser passada ou acessível
-                # No fluxo normal, analyzer é um atributo do bot, e o predictor é um atributo do analyzer.
-                # Então, self.analyzer.data_cache seria acessível se 'analyzer' fosse passado.
-                # Para simplificar, vou assumir que `self.analyzer` estará disponível aqui através da injeção de dependência ou referência.
-                # Se não, `self.analyzer` precisaria ser um atributo de MLPredictor definido no __init__.
+                df = pd.DataFrame(processed_data)
                 
-                # Temporariamente, para que extract_features funcione de forma mais independente:
-                # Essa parte é um pouco complicada na integração direta sem passar o `analyzer` para o `MLPredictor`.
-                # Idealmente, `extract_features` receberia `data_cache` ou os DataFrames de todos os timeframes.
-                # Para o backtest e simulação, o bot garante que o `data_cache` do analyzer esteja preenchido.
-                # Assumindo que `self.analyzer` é acessível aqui (o que é verdade no contexto do AIEnhancedAnalyzer):
-
-                # Verifica se self.analyzer existe e se o cache tem os dados necessários
-                if hasattr(self, 'analyzer') and self.analyzer.data_cache.get(symbol, {}).get('15m') is not None:
-                    df_15m_talib = self.analyzer.data_cache[symbol]['15m']
-                    
-                    sinal_string = avaliar_entrada(df_1m_talib, df_15m_talib)
-                    if sinal_string == "ENTRADA FORTE":
-                        talib_entrada_score = 1.0
-                    elif sinal_string == "AGUARDAR CONFIRMAÇÃO DE FORÇA":
-                        talib_entrada_score = 0.5
-                    else: # "SEM SINAL"
-                        talib_entrada_score = 0.0
-                else:
-                    self.logger.debug(f"TALIB: Dados 15m para {symbol} não disponíveis no cache para avaliar entrada.")
-                    talib_entrada_score = 0.0 # Sem dados, score neutro
-            else:
-                self.logger.debug("TALIB não disponível ou símbolo não fornecido para avaliação de entrada.")
-                talib_entrada_score = 0.0 # TALIB não disponível, score neutro
-
-
-            return AIFeatures(
-                rsi=rsi if not pd.isna(rsi) else 50.0,
-                supertrend_dir=supertrend_dir,
-                vwap_distance=vwap_distance if not pd.isna(vwap_distance) else 0.0,
-                volume_ratio=volume_ratio,
-                atr_normalized=atr_normalized if not pd.isna(atr_normalized) else 1.0,
-                bollinger_position=bollinger_position if not pd.isna(bollinger_position) else 0.5,
-                macd_signal_diff=macd_signal_diff if not pd.isna(macd_signal_diff) else 0.0,
-                candle_size=candle_size,
-                upper_shadow=upper_shadow,
-                lower_shadow=lower_shadow,
-                trend_strength=trend_strength,
-                volatility_regime=volatility_regime,
-                time_of_day=time_of_day,
-                price_momentum_5=price_momentum_5,
-                price_momentum_10=price_momentum_10,
-                volume_momentum=volume_momentum,
-                pattern_score=pattern_score,
-                talib_entrada_score=talib_entrada_score # Passa a nova feature
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao extrair features para {symbol}: {e}", exc_info=True)
-            return None
-    
-    def calculate_supertrend_direction(self, df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> int:
-        """
-        Calcula direção do SuperTrend usando a nova função `calcular_supertrend_talib`.
-        
-        Returns:
-        1 for uptrend, -1 for downtrend, 0 for neutral/error
-        """
-        if not TALIB_AVAILABLE:
-            self.logger.warning("TALIB não disponível. Usando SuperTrend baseado em MA como fallback.")
-            if len(df) >= 20:
-                ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
-                    return 1
-                elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
-                    return -1
-            return 0
-
-        try:
-            high_arr = df['High'].values
-            low_arr = df['Low'].values
-            close_arr = df['Close'].values
-
-            if len(close_arr) < period + 1:
-                self.logger.debug(f"Dados insuficientes para SuperTrend TALIB. Len: {len(close_arr)}")
-                return 0 # Não há dados suficientes, retorna neutro
-
-            supertrend_line = calcular_supertrend_talib(high_arr, low_arr, close_arr, period, multiplier)
-            
-            if np.isnan(supertrend_line[-1]):
-                self.logger.debug("SuperTrend TALIB resultou em NaN. Retornando neutro.")
-                return 0 # Se o cálculo falhou (NaN), retorna neutro
-
-            # Determine a direção
-            if close_arr[-1] > supertrend_line[-1]:
-                return 1 # Uptrend
-            elif close_arr[-1] < supertrend_line[-1]:
-                return -1 # Downtrend
-            else:
-                return 0 # Neutral ou preço na linha
-
-        except Exception as e:
-            self.logger.error(f"Erro ao calcular SuperTrend direction com TALIB: {e}")
-            # Fallback para MA-based trend if SuperTrend calculation fails
-            if len(df) >= 20:
-                ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                if not pd.isna(ma20) and df['Close'].iloc[-1] > ma20:
-                    return 1
-                elif not pd.isna(ma20) and df['Close'].iloc[-1] < ma20:
-                    return -1
-            return 0
-    
-    def calculate_vwap(self, df: pd.DataFrame) -> pd.Series:
-        """Calcula VWAP"""
-        typical_price = (df['High'] + df['Low'] + df['Close']) / 3 # Use maiúsculas
-        # Ensure volume is not zero to prevent division by zero
-        if df['Volume'].sum() == 0: # Use maiúscula
-            return pd.Series([0.0] * len(df), index=df.index)
-        return (typical_price * df['Volume']).cumsum() / df['Volume'].cumsum() # Use maiúscula
-    
-    def add_training_sample(self, features: AIFeatures, outcome: bool):
-        """Adiciona amostra de treinamento"""
-        self.training_data.append({
-            'features': features.to_array(),
-            'outcome': 1 if outcome else 0,
-            'timestamp': datetime.now()
-        })
-        
-        # Limitar tamanho dos dados de treinamento
-        if len(self.training_data) > 5000:
-            self.training_data = self.training_data[-5000:]
-    
-    def should_retrain(self) -> bool:
-        """Verifica se deve retreinar o modelo"""
-        if self.model is None:
-            return len(self.training_data) >= AI_CONFIG['min_training_samples']
-        
-        if self.last_retrain is None:
-            return True
-        
-        hours_since_retrain = (datetime.now() - self.last_retrain).total_seconds() / 3600
-        return hours_since_retrain >= AI_CONFIG['model_retrain_interval_hours']
-    
-    def train_model(self) -> bool:
-        """Treina o modelo de ML"""
-        if not ML_AVAILABLE or len(self.training_data) < AI_CONFIG['min_training_samples']:
-            self.logger.warning(f"Dados insuficientes para treinar: {len(self.training_data)} (mínimo: {AI_CONFIG['min_training_samples']})")
-            return False
-        
-        try:
-            self.logger.info(f"🧠 Iniciando treinamento com {len(self.training_data)} amostras...")
-            
-            # Preparar dados
-            X = np.array([sample['features'] for sample in self.training_data])
-            y = np.array([sample['outcome'] for sample in self.training_data])
-            
-            # Verificar se há variabilidade nos dados
-            if len(np.unique(y)) < 2:
-                self.logger.warning("Dados de treinamento sem variabilidade (apenas um tipo de resultado)")
-                return False
-            
-            # Split treino/teste
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y # Stratify to maintain class balance
-            )
-            
-            # Normalizar features
-            X_train_scaled = self.scaler.fit_transform(X_train)
-            X_test_scaled = self.scaler.transform(X_test)
-            
-            # Treinar múltiplos modelos e escolher o melhor
-            models = {}
-            
-            # Random Forest
-            rf_model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
-                random_state=42,
-                n_jobs=-1
-            )
-            rf_model.fit(X_train_scaled, y_train)
-            rf_pred = rf_model.predict(X_test_scaled)
-            models['rf'] = {
-                'model': rf_model,
-                'accuracy': accuracy_score(y_test, rf_pred)
-            }
-            
-            # Gradient Boosting
-            gb_model = GradientBoostingClassifier(
-                n_estimators=100,
-                max_depth=6,
-                random_state=42
-            )
-            gb_model.fit(X_train_scaled, y_train)
-            gb_pred = gb_model.predict(X_test_scaled)
-            models['gb'] = {
-                'model': gb_model,
-                'accuracy': accuracy_score(y_test, gb_pred)
-            }
-            
-            # XGBoost (se disponível)
-            if XGB_AVAILABLE:
-                xgb_model = xgb.XGBClassifier(
-                    n_estimators=100,
-                    max_depth=6,
-                    random_state=42,
-                    use_label_encoder=False, # Suppress warning
-                    eval_metric='logloss'    # Suppress warning
-                )
-                xgb_model.fit(X_train_scaled, y_train)
-                xgb_pred = xgb_model.predict(X_test_scaled)
-                models['xgb'] = {
-                    'model': xgb_model,
-                    'accuracy': accuracy_score(y_test, xgb_pred)
-                }
-            
-            # Escolher melhor modelo
-            best_model_name = max(models.keys(), key=lambda k: models[k]['accuracy'])
-            self.model = models[best_model_name]['model']
-            self.model_accuracy = models[best_model_name]['accuracy']
-            
-            self.last_retrain = datetime.now()
-            
-            self.logger.info(f"✅ Modelo treinado ({best_model_name}): Acurácia {self.model_accuracy:.3f}")
-            
-            # Salvar modelo
-            self.save_model()
-            
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Erro no treinamento: {e}", exc_info=True)
-            return False
-    
-    def predict(self, features: AIFeatures) -> Tuple[float, float]:
-        """Prediz probabilidade de sucesso do trade"""
-        if self.model is None:
-            return 0.5, 0.0  # Neutro se não há modelo
-        
-        try:
-            # Preparar features
-            X = features.to_array().reshape(1, -1)
-            X_scaled = self.scaler.transform(X)
-            
-            # Predição
-            probabilities = self.model.predict_proba(X_scaled)[0]
-            prob_success = probabilities[1] if len(probabilities) > 1 else 0.5
-            
-            # Confiança baseada na distância do threshold
-            confidence = abs(prob_success - 0.5) * 2  # 0 a 1
-            
-            return prob_success, confidence
-            
-        except Exception as e:
-            self.logger.error(f"Erro na predição: {e}")
-            return 0.5, 0.0
-    
-    def save_model(self):
-        """Salva modelo treinado"""
-        try:
-            model_path = os.path.join(AI_CONFIG['model_save_path'], f'model_{self.environment}.pkl')
-            scaler_path = os.path.join(AI_CONFIG['model_save_path'], f'scaler_{self.environment}.pkl')
-            
-            joblib.dump(self.model, model_path)
-            joblib.dump(self.scaler, scaler_path)
-            
-            # Salvar metadados
-            metadata = {
-                'accuracy': self.model_accuracy,
-                'last_retrain': self.last_retrain.isoformat() if self.last_retrain else None,
-                'training_samples': len(self.training_data)
-            }
-            
-            metadata_path = os.path.join(AI_CONFIG['model_save_path'], f'metadata_{self.environment}.json')
-            with open(metadata_path, 'w') as f:
-                json.dump(metadata, f)
-            
-            self.logger.info(f"✅ Modelo salvo: {model_path}")
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao salvar modelo: {e}")
-    
-    def load_model(self):
-        """Carrega modelo salvo"""
-        try:
-            model_path = os.path.join(AI_CONFIG['model_save_path'], f'model_{self.environment}.pkl')
-            scaler_path = os.path.join(AI_CONFIG['model_save_path'], f'scaler_{self.environment}.pkl')
-            metadata_path = os.path.join(AI_CONFIG['model_save_path'], f'metadata_{self.environment}.json')
-            
-            if os.path.exists(model_path) and os.path.exists(scaler_path):
-                self.model = joblib.load(model_path)
-                self.scaler = joblib.load(scaler_path)
+                df.set_index('timestamp', inplace=True)
                 
-                if os.path.exists(metadata_path):
-                    with open(metadata_path, 'r') as f:
-                        metadata = json.load(f)
-                    
-                    self.model_accuracy = metadata.get('accuracy', 0.0)
-                    last_retrain_str = metadata.get('last_retrain')
-                    if last_retrain_str:
-                        self.last_retrain = datetime.fromisoformat(last_retrain_str)
+                df = df.sort_index()
                 
-                self.logger.info(f"✅ Modelo carregado: Acurácia {self.model_accuracy:.3f}")
-                return True
+                rows_before_dropna = len(df)
+                df = df.dropna(subset=['Close', 'Volume'])
+                rows_after_dropna = len(df)
                 
-        except Exception as e:
-            self.logger.error(f"Erro ao carregar modelo: {e}")
-        
-        return False
-
-# ============================================================================
-# 📊 SINAL DE TRADING ENHANCED
-# ============================================================================
-
-@dataclass
-class EnhancedTradingSignal:
-    """Sinal de trading com predições da IA"""
-    symbol: str
-    action: str
-    base_confidence: float
-    ai_probability: float
-    ai_confidence: float
-    final_confidence: float
-    pattern_score: float
-    sentiment_score: float
-    features: AIFeatures
-    entry_price: float
-    stop_loss: float
-    take_profit: float
-    risk_reward: float
-    timestamp: datetime
-    
-    def to_dict(self):
-        return {
-            'symbol': self.symbol,
-            'action': self.action,
-            'base_confidence': round(self.base_confidence, 3),
-            'ai_probability': round(self.ai_probability, 3),
-            'ai_confidence': round(self.ai_confidence, 3),
-            'final_confidence': round(self.final_confidence, 3),
-            'pattern_score': round(self.pattern_score, 3),
-            'sentiment_score': round(self.sentiment_score, 3),
-            'entry_price': round(self.entry_price, 4),
-            'stop_loss': round(self.stop_loss, 4),
-            'take_profit': round(self.take_profit, 4),
-            'risk_reward': round(self.risk_reward, 2),
-            'timestamp': self.timestamp.isoformat()
-        }
-
-# ============================================================================
-# 📅 CALENDÁRIO ECONÔMICO FRED
-# ============================================================================
-
-@dataclass
-class EconomicEvent:
-    """Classe para representar um evento econômico com dados mais ricos."""
-    release_id: str
-    name: str
-    date: datetime # Data do release
-    time: Optional[str] # Horário estimado do release (ex: "08:30")
-    importance: str  # HIGH, MEDIUM, LOW
-    frequency: Optional[str] = None # Mensal, Semanal, etc.
-    series_id: Optional[str] = None # ID da série FRED associada ao evento
-    previous_value: Optional[float] = None
-    forecast: Optional[float] = None # Difícil de obter do FRED, pode ser N/A
-    actual: Optional[float] = None # Última observação da série
-    impact_score: float = 0.0 # 0-100
-    currency: str = "USD"
-    category: str = "GENERAL"
-    metadata: Dict[str, Any] = field(default_factory=dict) # Usa default_factory para mutáveis
-
-    def to_dict(self): # Adicione este método
-        return {
-            'release_id': self.release_id,
-            'name': self.name,
-            'date': self.date.isoformat(), # Converte datetime para string ISO
-            'time': self.time,
-            'importance': self.importance,
-            'frequency': self.frequency,
-            'series_id': self.series_id,
-            'previous_value': self.previous_value,
-            'forecast': self.forecast,
-            'actual': self.actual,
-            'impact_score': self.impact_score,
-            'currency': self.currency,
-            'category': self.category,
-            'metadata': self.metadata
-        }
-
-class FREDEconomicCalendar:
-    """
-    Integração profissional com a API do FRED para calendário econômico.
-    Foca em releases de alto impacto e busca as últimas observações.
-    """
-    
-    def __init__(self, api_key: str):
-        if not api_key or api_key == "DUMMY_KEY_FRED":
-            logging.getLogger(__name__).warning("FRED API Key não fornecida ou é dummy. Calendário FRED inativo.")
-            self.api_key = None # Desativa a API se a chave não for válida
-        else:
-            self.api_key = api_key
-        self.base_url = "https://api.stlouisfed.org/fred"
-        
-        # Cache de releases e eventos para evitar múltiplas requisições da mesma informação
-        self.cache: Dict[str, Any] = {
-            "upcoming_events": [],
-            "last_full_update": None, # Timestamp da última atualização completa
-            "cache_duration_seconds": 21600 # Cache por 6 horas (21600 segundos) para eventos futuros
-        }
-        self.logger = logging.getLogger('FREDCalendar')
-
-        # Para backtesting, permite sobrescrever datetime.now()
-        self.datetime_now_override: Optional[datetime] = None
-    
-        # Mapeamento de releases críticos com seus FRED series IDs e scores de impacto
-        # Estes IDs são os que usaremos para buscar os valores anteriores/atuais.
-        self.critical_release_series: Dict[str, Dict[str, Any]] = {
-            # Non-Farm Payrolls - NFP (Muitas séries para NFP, usando um proxy comum)
-            "PAYEMS": { 
-                "name": "Non-Farm Payrolls", "series_id": "PAYEMS", # Total Nonfarm Payrolls: All Employees, Seasonally Adjusted
-                "impact_score": 95, "importance": "HIGH", "category": "EMPLOYMENT", "volatility_factor": 2.5
-            },
-            # Consumer Price Index (CPI)
-            "CPIAUCSL": { 
-                "name": "Consumer Price Index", "series_id": "CPIAUCSL", # CPI for All Urban Consumers: All Items, Seasonally Adjusted
-                "impact_score": 90, "importance": "HIGH", "category": "INFLATION", "volatility_factor": 2.0
-            },
-            # Federal Funds Rate (Taxa de Juros)
-            "FEDFUNDS": { 
-                "name": "Federal Funds Rate", "series_id": "FEDFUNDS", # Federal Funds Effective Rate
-                "impact_score": 98, "importance": "HIGH", "category": "MONETARY_POLICY", "volatility_factor": 3.0
-            },
-            # Gross Domestic Product (GDP)
-            "GDP": { 
-                "name": "Gross Domestic Product", "series_id": "GDP", # Gross Domestic Product
-                "impact_score": 85, "importance": "HIGH", "category": "GROWTH", "volatility_factor": 1.8
-            },
-            # Unemployment Rate
-            "UNRATE": { 
-                "name": "Unemployment Rate", "series_id": "UNRATE", # Civilian Unemployment Rate
-                "impact_score": 80, "importance": "HIGH", "category": "EMPLOYMENT", "volatility_factor": 1.5
-            },
-            # Personal Consumption Expenditures (PCE Price Index)
-            "PCEPI": { 
-                "name": "PCE Price Index", "series_id": "PCEPI", # Personal Consumption Expenditures Price Index
-                "impact_score": 85, "importance": "HIGH", "category": "INFLATION", "volatility_factor": 1.7
-            },
-            # Produção Industrial
-            "INDPRO": {
-                "name": "Industrial Production Index", "series_id": "INDPRO", # Industrial Production Index, Seasonally Adjusted
-                "impact_score": 75, "importance": "MEDIUM", "category": "MANUFACTURING", "volatility_factor": 1.4
-            },
-            # Vendas no Varejo (Retail Sales)
-            "RSXFS": {
-                "name": "Retail Sales: Total", "series_id": "RSXFS", # Retail Sales: Total, Seasonally Adjusted
-                "impact_score": 70, "importance": "MEDIUM", "category": "CONSUMPTION", "volatility_factor": 1.3
-            }
-            # Adicione mais conforme necessário, consultando o site do FRED para os `series_id`
-        }
-    
-    def _get_current_datetime(self) -> datetime:
-        """Retorna o datetime atual, ou o datetime de override para backtesting."""
-        return self.datetime_now_override if self.datetime_now_override else datetime.now()
-
-    def _make_request(self, endpoint: str, params: Dict) -> Optional[Dict]:
-        """Faz requisição para a API do FRED com tratamento de erros."""
-        if not self.api_key:
-            self.logger.debug(f"FRED API Key não configurada. Não é possível fazer requisições FRED para {endpoint}.")
-            return None
-        
-        try:
-            params.update({
-                "api_key": self.api_key,
-                "file_type": "json"
-            })
-            
-            response = requests.get(f"{self.base_url}/{endpoint}", params=params, timeout=10) # Adiciona timeout
-            response.raise_for_status() # Lança HTTPError para 4xx/5xx responses
-            
-            return response.json()
-            
-        except requests.exceptions.Timeout:
-            self.logger.error(f"Requisição FRED excedeu o tempo limite para {endpoint}.")
-            return None
-        except requests.exceptions.RequestException as e:
-            self.logger.error(f"Erro de requisição FRED para {endpoint}: {e}")
-            return None
-        except json.JSONDecodeError as e:
-            self.logger.error(f"Erro ao decodificar JSON da resposta FRED para {endpoint}: {e}. Resposta: {response.text[:200]}...")
-            return None
-        except Exception as e:
-            self.logger.error(f"Erro inesperado em _make_request para {endpoint}: {e}")
-            return None
-
-    def _get_series_observations(self, series_id: str, limit: int = 2) -> List[Dict]:
-        """
-        Busca as últimas observações para uma série específica do FRED.
-        Args:
-            series_id: O ID da série FRED (ex: "CPIAUCSL").
-            limit: Número de observações mais recentes a buscar (para previous e actual).
-        Returns:
-            Lista de dicionários de observações.
-        """
-        params = {
-            "series_id": series_id,
-            "sort_order": "desc", # Ordem decrescente de data
-            "limit": limit
-        }
-        data = self._make_request("series/observations", params)
-        if data and "observations" in data:
-            # Filter out '.' values (no data)
-            valid_observations = [obs for obs in data["observations"] if obs["value"] != "."]
-            return valid_observations
-        return []
-
-    def _get_release_info(self, release_id: str) -> Optional[Dict]:
-        """Busca informações detalhadas de um release (ex: frequência)."""
-        params = {"release_id": release_id}
-        data = self._make_request("release", params)
-        if data and "releases" in data and data["releases"]:
-            return data["releases"][0]
-        return None
-    
-    def get_upcoming_releases(self, days_ahead: int = 14) -> List[EconomicEvent]:
-        """
-        Obtém próximos releases econômicos importantes, incluindo dados anteriores/atuais.
-        Utiliza cache para otimização.
-        """
-        current_dt = self._get_current_datetime()
-
-        # Verifica o cache com base no current_dt
-        if self.cache["last_full_update"] and \
-           (current_dt - self.cache["last_full_update"]).total_seconds() < self.cache["cache_duration_seconds"]:
-            self.logger.info("Retornando eventos FRED do cache.")
-            return self.cache["upcoming_events"]
-
-        if not self.api_key:
-            self.logger.warning("FRED API Key não configurada. Não é possível obter releases.")
-            self.cache["upcoming_events"] = [] 
-            self.cache["last_full_update"] = current_dt
-            return []
-
-        self.logger.info(f"Buscando novos eventos FRED para os próximos {days_ahead} dias.")
-        try:
-            start_date_str = current_dt.strftime("%Y-%m-%d")
-            end_date_str = (current_dt + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-            
-            params = {
-                "realtime_start": start_date_str,
-                "realtime_end": end_date_str,
-                "include_release_dates_with_no_data": "false"
-            }
-            
-            data = self._make_request("releases/dates", params)
-            
-            if not data or "release_dates" not in data:
-                self.logger.warning("Nenhum dado de 'releases/dates' recebido do FRED.")
-                self.cache["upcoming_events"] = [] 
-                self.cache["last_full_update"] = current_dt
-                return []
-            
-            events = []
-            
-            # Mapeia nomes de releases críticos para seus metadados (para classificação rápida)
-            critical_names_map = {v["name"].lower(): k for k, v in self.critical_release_series.items()}
-
-            for release in data["release_dates"]:
-                release_id = release.get("release_id")
-                release_name = release.get("release_name", "Unknown")
-                release_date_str = release.get("date", "1970-01-01")
-                
-                try:
-                    release_date = datetime.strptime(release_date_str, "%Y-%m-%d")
-                except ValueError:
-                    self.logger.warning(f"Data de release inválida: {release_date_str}. Pulando evento.")
-                    continue
-
-                importance = "LOW"
-                impact_score = 30
-                category = "GENERAL"
-                series_id = None
-                
-                matched_series_key = critical_names_map.get(release_name.lower())
-                if matched_series_key and matched_series_key in self.critical_release_series:
-                    critical_info = self.critical_release_series[matched_series_key]
-                    importance = critical_info["importance"]
-                    impact_score = critical_info["impact_score"]
-                    category = critical_info["category"]
-                    series_id = critical_info["series_id"]
-                
-                actual_val: Optional[float] = None
-                previous_val: Optional[float] = None
-                forecast_val: Optional[float] = None 
-                
-                if series_id:
-                    observations = self._get_series_observations(series_id, limit=2)
-                    if observations:
-                        try:
-                            actual_val = float(observations[0]["value"]) # Most recent valid observation
-                        except (ValueError, TypeError):
-                            actual_val = None
-                        
-                        if len(observations) > 1:
-                            try:
-                                previous_val = float(observations[1]["value"]) # Second most recent valid observation
-                            except (ValueError, TypeError):
-                                previous_val = None
-
-                frequency = "Unknown"
-                release_details = self._get_release_info(release_id)
-                if release_details and "frequency" in release_details:
-                    frequency = release_details["frequency"]
-
-                event_obj = EconomicEvent(
-                    release_id=release_id,
-                    name=release_name,
-                    date=release_date,
-                    time=self._estimate_release_time(category),
-                    importance=importance,
-                    frequency=frequency,
-                    series_id=series_id,
-                    previous_value=previous_val,
-                    forecast=forecast_val, 
-                    actual=actual_val,
-                    impact_score=impact_score,
-                    category=category
-                )
-                
-                events.append(event_obj)
-            
-            # Ordena por data e impacto
-            events.sort(key=lambda x: (x.date, -x.impact_score))
-            
-            self.logger.info(f"Coletados e enriquecidos {len(events)} eventos econômicos próximos do FRED.")
-            self.cache["upcoming_events"] = events
-            self.cache["last_full_update"] = current_dt
-            return events
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao obter e processar releases futuros do FRED: {e}")
-            return []
-    
-    def _classify_release(self, release_name: str, release_id: str) -> tuple:
-        """
-        Classifica a importância e categoria de um release com base no nome e IDs críticos pré-definidos.
-        Esta função é uma fallback/complemento para a lógica em `get_upcoming_releases`
-        que já tenta usar `self.critical_release_series`.
-        """
-        name_lower = release_name.lower()
-        
-        # Procura na lista de releases críticos pelo nome (chave) ou nome (dentro do dict)
-        for key, info in self.critical_release_series.items():
-            if key.lower() in name_lower or info["name"].lower() in name_lower:
-                return info["importance"], info["impact_score"], info["category"]
-        
-        # Fallback para classificação genérica se não for um dos críticos principais
-        if any(keyword in name_lower for keyword in [
-            "employment", "payroll", "jobs", "unemployment",
-            "inflation", "cpi", "pce", "price index",
-            "federal funds", "fomc", "fed", "interest rate",
-            "gdp", "gross domestic"
-        ]):
-            return "HIGH", 80, self._get_category(name_lower)
-        
-        elif any(keyword in name_lower for keyword in [
-            "housing", "retail", "consumer", "industrial",
-            "durable goods", "trade", "treasury", "bond"
-        ]):
-            return "MEDIUM", 55, self._get_category(name_lower)
-        
-        else:
-            return "LOW", 25, "GENERAL"
-    
-    def _get_category(self, name_lower: str) -> str:
-        """Determina a categoria do evento."""
-        if any(word in name_lower for word in ["employment", "payroll", "jobs", "unemployment", "labor"]):
-            return "EMPLOYMENT"
-        elif any(word in name_lower for word in ["inflation", "cpi", "pce", "price"]):
-            return "INFLATION"
-        elif any(word in name_lower for word in ["fed", "fomc", "funds", "rate", "monetary"]):
-            return "MONETARY_POLICY"
-        elif any(word in name_lower for word in ["gdp", "growth", "economic", "production"]):
-            return "GROWTH"
-        elif any(word in name_lower for word in ["housing", "home", "building"]):
-            return "HOUSING"
-        elif any(word in name_lower for word in ["trade", "export", "import", "balance"]):
-            return "TRADE"
-        elif any(word in name_lower for word in ["manufacturing", "industrial", "ism"]):
-            return "MANUFACTURING"
-        elif any(word in name_lower for word in ["consumer", "retail", "sales"]):
-            return "CONSUMPTION"
-        else:
-            return "GENERAL"
-    
-    def _estimate_release_time(self, category: str) -> str:
-        """Estima horário típico de release baseado na categoria (Horário de Nova York - ET)."""
-        time_map = {
-            "EMPLOYMENT": "08:30 ET",  
-            "INFLATION": "08:30 ET",   
-            "MONETARY_POLICY": "14:00 ET", 
-            "GROWTH": "08:30 ET",      
-            "HOUSING": "10:00 ET",     
-            "TRADE": "08:30 ET",       
-            "MANUFACTURING": "10:00 ET",
-            "CONSUMPTION": "08:30 ET",
-            "GENERAL": "10:00 ET"      
-        }
-        return time_map.get(category, "10:00 ET")
-    
-    def get_high_impact_events_today(self) -> List[EconomicEvent]:
-        """Obtém eventos de alto impacto para hoje."""
-        current_dt = self._get_current_datetime()
-        today_date = current_dt.date()
-        # Busca releases até amanhã para pegar os de hoje, atualizando o cache
-        upcoming = self.get_upcoming_releases(days_ahead=1) 
-        
-        return [
-            event for event in upcoming 
-            if event.date.date() == today_date and event.importance == "HIGH"
-        ]
-    
-    def get_next_critical_event(self) -> Optional[EconomicEvent]:
-        """Obtém o próximo evento crítico (impact_score >= 80)."""
-        current_dt = self._get_current_datetime()
-        upcoming = self.get_upcoming_releases(days_ahead=30)
-        critical_events = [
-            event for event in upcoming 
-            if event.impact_score >= 80 and event.date.date() >= current_dt.date() # A partir de hoje
-        ]
-        # Retorna o primeiro evento crítico futuro, se houver
-        return critical_events[0] if critical_events else None
-    
-    def generate_pre_event_alerts(self, hours_before: int = 24) -> List[Dict]:
-        """Gera alertas preventivos antes de eventos importantes."""
-        alerts = []
-        current_dt = self._get_current_datetime()
-        upcoming = self.get_upcoming_releases(days_ahead=7) # Busca eventos para os próximos 7 dias
-        
-        for event in upcoming:
-            # Considera eventos de alta ou média importância
-            if event.importance in ["HIGH", "MEDIUM"]:
-                
-                # Se o evento é hoje ou no futuro próximo
-                if event.date.date() >= current_dt.date():
-                    
-                    # Constrói o datetime completo para o evento (data + hora estimada)
-                    event_datetime_str = f"{event.date.strftime('%Y-%m-%d')} {event.time.split(' ')[0]}" # Remove 'ET'
-                    try:
-                        event_datetime = datetime.strptime(event_datetime_str, "%Y-%m-%d %H:%M")
-                    except ValueError:
-                        self.logger.warning(f"Não foi possível parsear o tempo do evento {event.name}: {event_datetime_str}. Ignorando horário.")
-                        event_datetime = event.date # Usa só a data
-
-                    time_until_release = event_datetime - current_dt
-                    hours_until = time_until_release.total_seconds() / 3600
-
-                    # Gera alerta se o evento está dentro da janela `hours_before` e ainda não passou
-                    if 0 < hours_until <= hours_before:
-                        
-                        alert = {
-                            "type": "PRE_EVENT_ALERT",
-                            "title": f"⏰ Evento Econômico Importante: {event.name}",
-                            "message": f"Divulgação de {event.name} ({event.importance} Impacto) em {hours_until:.1f} horas ({event_datetime.strftime('%d/%m %H:%M %Z')}).",
-                            "severity": "MEDIUM" if hours_until > 6 else "HIGH", # Mais perto, maior a severidade
-                            "timestamp": current_dt.isoformat(),
-                            "event_data": {
-                                "event_name": event.name,
-                                "event_date": event.date.isoformat(),
-                                "event_time": event.time,
-                                "importance": event.importance,
-                                "impact_score": event.impact_score,
-                                "category": event.category,
-                                "hours_until": hours_until,
-                                "series_id": event.series_id,
-                                "previous_value": event.previous_value,
-                                "actual_value": event.actual, # O 'actual' será o último disponível antes do release
-                                "forecast_value": event.forecast # Será None
-                            },
-                            "recommendations": self._generate_recommendations(event, hours_until)
-                        }
-                        
-                        alerts.append(alert)
-        
-        return alerts
-    
-    def _generate_recommendations(self, event: EconomicEvent, hours_until: float) -> List[str]:
-        """Gera recomendações de trading baseadas no tipo de evento e iminência."""
-        recommendations = []
-        
-        if event.category == "EMPLOYMENT":
-            recommendations.extend([
-                "🔍 Monitorar DXY/BTC próximo ao NFP (Non-Farm Payrolls).",
-                "📈 Esperar alta volatilidade em todos os ativos de risco.",
-                "⚠️ Possível reversão de tendências se dados surpreenderem."
-            ])
-        elif event.category == "INFLATION":
-            recommendations.extend([
-                "🥇 Ouro pode ter movimento forte com dados de inflação (CPI/PCE).",
-                "💵 DXY sensível a surpresas nos índices de preços.",
-                "📊 Observar padrões de divergência DXY/BTC em torno da inflação."
-            ])
-        elif event.category == "MONETARY_POLICY":
-            recommendations.extend([
-                "🏛️ Decisões do FOMC (FED) podem gerar padrões angulares extremos.",
-                "⚡ Volatilidade máxima esperada em todos os ativos.",
-                "🎯 Monitorar 'perfect divergence' DXY/BTC com declarações do FED."
-            ])
-        elif event.category == "GROWTH":
-            recommendations.extend([
-                "📊 Dados de PIB (GDP) impactam diretamente o sentimento de risco.",
-                "📈 Abertura de novas posições com cautela após o release."
-            ])
-        
-        if hours_until <= 0.5: # 30 minutos antes
-            recommendations.append("🚨 ALERTA CRÍTICO: Evento iminente em menos de 30 minutos - MÁXIMA ATENÇÃO!.")
-        elif hours_until <= 2: # 2 horas antes
-            recommendations.append("⚠️ ALERTA: Evento importante se aproxima - preparar para volatilidade.")
-        elif hours_until <= 12: # 12 horas antes
-            recommendations.append("🔔 Aviso: Evento de alto impacto nas próximas 12 horas.")
-        
-        return recommendations
-    
-    def correlate_with_angular_data(self, events: List[EconomicEvent], 
-                                   angular_cache: Dict) -> Dict:
-        """
-        Correlaciona eventos econômicos com movimentos angulares históricos.
-        Ainda em desenvolvimento, para um radar profissional profissional real, esta lógica seria mais complexa.
-        """
-        correlations = {
-            "event_impact_analysis": [],
-            "volatility_predictions": {}, # Ex: prever se o evento causará alta ou baixa volatilidade
-            "pattern_likelihood": {} # Ex: probabilidade de um certo padrão angular após o evento
-        }
-        
-        try:
-            # angular_history será uma lista de dicionários com 'timestamp', 'btc', 'gold', 'dxy'
-            angular_history = angular_cache.get("angular_data", []) 
-
-            # Converte a lista de dicionários para DataFrame para facilitar a busca por datas
-            if angular_history:
-                angular_df = pd.DataFrame(angular_history)
-                # Garante que o timestamp é datetime e define como índice
-                angular_df['timestamp'] = pd.to_datetime(angular_df['timestamp'])
-                angular_df.set_index('timestamp', inplace=True)
-                angular_df.sort_index(inplace=True)
-            else:
-                angular_df = pd.DataFrame()
-            
-            for event in events:
-                event_date = event.date.date()
-                
-                if not angular_df.empty:
-                    # Filtra dados angulares para o dia do evento ou nas 24h anteriores/posteriores
-                    # Para simplificar, pegamos o dia do evento
-                    event_day_data = angular_df.loc[
-                        angular_df.index.date == event_date
-                    ]
-                    
-                    if not event_day_data.empty:
-                        # Analisa volatilidade angular no dia do evento (amplitude ou desvio padrão dos ângulos)
-                        max_angle_change = 0
-                        
-                        for idx, data_row in event_day_data.iterrows():
-                            for asset_key in ["btc", "gold", "dxy"]:
-                                if asset_key in data_row and isinstance(data_row[asset_key], dict) and "angle" in data_row[asset_key]:
-                                    angle_val = data_row[asset_key]["angle"]
-                                    # Pega o ângulo absoluto como uma medida simples de volatilidade angular
-                                    if abs(angle_val) > max_angle_change:
-                                        max_angle_change = abs(angle_val)
-                        
-                        correlations["event_impact_analysis"].append({
-                            "event_name": event.name,
-                            "date": event_date.isoformat(),
-                            "max_angular_volatility_observed": max_angle_change,
-                            "event_impact_score": event.impact_score,
-                            "event_category": event.category
-                        })
-            
-            self.logger.info(f"Correlação angular concluída para {len(events)} eventos.")
-            
-        except Exception as e:
-            self.logger.error(f"Erro na correlação angular: {e}")
-        
-        return correlations
-
-# ============================================================================
-# 🔄 ANALISADOR COM IA INTEGRADA
-# ============================================================================
-
-class AIEnhancedAnalyzer:
-    """Analisador com IA integrada"""
-    
-    def __init__(self, environment: str = 'testnet'):
-        self.environment = environment
-        self.risk_config = RISK_CONFIG[environment]
-        self.logger = logging.getLogger('AIAnalyzer')
-        
-        # Componentes de IA
-        self.ml_predictor = MLPredictor(environment)
-        # Injetar referência para o analyzer no predictor para acesso ao data_cache
-        self.ml_predictor.analyzer = self 
-        self.pattern_matcher = PatternMatcher(AI_CONFIG['pattern_memory_size'])
-        self.sentiment_analyzer = SentimentAnalyzer()
-        
-        # Calendário FRED (agora integrado)
-        self.fred_calendar = FREDEconomicCalendar(FRED_API_KEY)
-        self.last_fred_update = None # Usado para controlar a frequência de atualização do cache de eventos FRED
-        self.fred_events_cache: List[EconomicEvent] = [] # Cache para eventos FRED
-        
-        # Cache de dados (OHLCV)
-        self.data_cache = {}
-        self.last_cache_update = {}
-        self.last_update = None # <--- ADICIONE ESTA LINHA AQUI!
-        self.logger.info(f"🧠 AIEnhancedAnalyzer inicializado para {environment}")
-    
-    def _update_fred_events_cache(self):
-        """Atualiza o cache de eventos do FRED periodicamente."""
-        current_dt = datetime.now() # Usa datetime.now() para o ambiente real
-        if self.environment == 'simulate_backtest' and hasattr(self.fred_calendar, 'datetime_now_override') and self.fred_calendar.datetime_now_override:
-            current_dt = self.fred_calendar.datetime_now_override
-
-        if self.last_fred_update is None or \
-           (current_dt - self.last_fred_update).total_seconds() > self.fred_calendar.cache["cache_duration_seconds"]:
-            try:
-                self.fred_events_cache = self.fred_calendar.get_upcoming_releases(days_ahead=7)
-                self.last_fred_update = current_dt
-                self.logger.info(f"Cache de eventos FRED atualizado. {len(self.fred_events_cache)} eventos encontrados.")
-            except Exception as e:
-                self.logger.error(f"Falha ao atualizar cache de eventos FRED: {e}")
-                self.fred_events_cache = [] # Limpa cache se houver erro
-    
-    def _get_current_fred_impact(self) -> Tuple[bool, float, Optional[EconomicEvent]]:
-        """
-        Verifica se há um evento FRED de alto impacto iminente e calcula a penalidade na confiança.
-        Retorna (is_high_impact_imminent, penalty_factor, next_high_impact_event).
-        """
-        self._update_fred_events_cache() # Garante que o cache de eventos FRED está atualizado
-        
-        current_dt = datetime.now()
-        if self.environment == 'simulate_backtest' and hasattr(self.fred_calendar, 'datetime_now_override') and self.fred_calendar.datetime_now_override:
-            current_dt = self.fred_calendar.datetime_now_override
-        
-        # Busca o próximo evento de alto impacto na janela relevante (ex: próximas 2-4 horas)
-        next_high_impact_event: Optional[EconomicEvent] = None
-        for event in self.fred_events_cache:
-            if event.importance == "HIGH":
-                # Tenta criar um datetime completo para o evento
-                try:
-                    event_datetime = event.date.replace(hour=int(event.time.split(':')[0]), minute=int(event.time.split(':')[1].split(' ')[0]))
-                except (ValueError, AttributeError):
-                    # Se o tempo não puder ser parseado, assume o início do dia do evento
-                    event_datetime = event.date 
-                    self.logger.warning(f"Erro ao parsear tempo para evento FRED '{event.name}'. Usando início do dia.")
-
-                time_until_release_hours = (event_datetime - current_dt).total_seconds() / 3600
-                
-                # Considera evento iminente se estiver a 4 horas ou menos (antes ou depois)
-                if -AI_CONFIG['fred_cooldown_minutes_high_impact']/60 <= time_until_release_hours <= 4.0: # Ex: 1h depois a 4h antes
-                    next_high_impact_event = event
-                    break # Pega o mais próximo
-                
-
-        if next_high_impact_event:
-            hours_diff = (next_high_impact_event.date.replace(hour=int(next_high_impact_event.time.split(':')[0]), minute=int(next_high_impact_event.time.split(':')[1].split(' ')[0])) - current_dt).total_seconds() / 3600
-            
-            # Penalidade máxima perto do evento, diminuindo com a distância
-            # Aplica penalidade mesmo se o evento já passou há pouco tempo (dentro do cooldown)
-            if abs(hours_diff) <= 0.5: # 30 min antes/depois
-                penalty = AI_CONFIG['fred_impact_penalty_factor'] * 1.0 # Penalidade total
-            elif abs(hours_diff) <= AI_CONFIG['fred_cooldown_minutes_high_impact']/60: # Dentro da janela de cooldown FRED
-                penalty = AI_CONFIG['fred_impact_penalty_factor'] * (1 - (abs(hours_diff) / (AI_CONFIG['fred_cooldown_minutes_high_impact']/60))) # Reduz gradualmente
-            else:
-                penalty = 0.0 # Nenhuma penalidade se estiver fora da janela de impacto/cooldown
-            
-            self.logger.info(f"🚨 Evento FRED de ALTO IMPACTO iminente/recente: {next_high_impact_event.name} em {hours_diff:.1f}h. Penalidade na confiança: {penalty:.2f}")
-            return True, penalty, next_high_impact_event
-        
-        return False, 0.0, None
-
-    def generate_enhanced_signal(self, symbol: str, active_positions: List) -> Optional[EnhancedTradingSignal]:
-        """Gera sinal com todas as análises de IA, incluindo o impacto do calendário FRED."""
-        try:
-            # Verificar dados
-            if symbol not in self.data_cache or '5m' not in self.data_cache[symbol]:
-                self.logger.debug(f"Dados insuficientes para {symbol} no cache.")
-                return None
-            
-            df = self.data_cache[symbol]['5m']
-            if df is None or len(df) < 50:
-                self.logger.debug(f"DataFrame insuficiente para {symbol} ({len(df)} candles).")
-                return None
-            
-            # === Avaliar impacto do FRED ===
-            is_fred_imminent, fred_penalty, fred_event_info = self._get_current_fred_impact()
-            
-            # Se um evento de alto impacto FRED está iminente, pode aplicar um filtro inicial
-            if is_fred_imminent and fred_event_info:
-                # Se o evento é de altíssima importância (e.g., FED Funds Rate) e estamos muito perto
-                try:
-                    event_datetime_fred = fred_event_info.date.replace(hour=int(fred_event_info.time.split(':')[0]), minute=int(fred_event_info.time.split(':')[1].split(' ')[0]))
-                except (ValueError, AttributeError):
-                    event_datetime_fred = fred_event_info.date # Fallback if time parsing fails
-
-                current_dt_check = datetime.now()
-                if self.environment == 'simulate_backtest' and hasattr(self.fred_calendar, 'datetime_now_override') and self.fred_calendar.datetime_now_override:
-                    current_dt_check = self.fred_calendar.datetime_now_override
-
-                hours_until_fred = (event_datetime_fred - current_dt_check).total_seconds() / 3600
-                
-                # Se estamos muito perto (ex: 30 minutos antes/depois) E o impacto é CRÍTICO (e.g., score >= 90)
-                if abs(hours_until_fred) <= 0.5 and fred_event_info.impact_score >= 90: 
-                    self.logger.warning(f"❌ Evento FRED CRÍTICO '{fred_event_info.name}' iminente/recente. PAUSANDO GERAÇÃO DE SINAL.")
-                    return None # Não gera sinal
-            
-            # === 1. ANÁLISE TÉCNICA TRADICIONAL ===
-            base_signal = self.generate_base_signal(df, symbol)
-            if not base_signal:
-                self.logger.debug(f"Nenhum sinal base gerado para {symbol}.")
-                return None
-            
-            # === 2. ANÁLISE DE PADRÕES ===
-            pattern = self.pattern_matcher.extract_pattern(df)
-            pattern_score = self.pattern_matcher.get_pattern_score(pattern)
-            
-            # === 3. EXTRAÇÃO DE FEATURES PARA IA ===
-            # Passa o símbolo para que extract_features possa acessar outros timeframes do cache
-            features = self.ml_predictor.extract_features(df, pattern_score, symbol=symbol) 
-            if not features:
-                self.logger.debug(f"Falha ao extrair features para IA para {symbol}.")
-                return None
-            
-            # === 4. PREDIÇÃO DE MACHINE LEARNING ===
-            ai_probability, ai_confidence = self.ml_predictor.predict(features)
-            
-            # === 5. ANÁLISE DE SENTIMENTO ===
-            sentiment_score = self.sentiment_analyzer.get_crypto_news_sentiment(symbol)
-            
-            # === 6. COMBINAR TODAS AS ANÁLISES ===
-            final_confidence = self.calculate_final_confidence(
-                base_confidence=base_signal['confidence'],
-                ai_probability=ai_probability,
-                ai_confidence=ai_confidence,
-                pattern_score=pattern_score,
-                sentiment_score=sentiment_score,
-                action=base_signal['action']
-            )
-            
-            # Aplicar penalidade do FRED na confiança final (mesmo se não pausar, reduz confiança)
-            if is_fred_imminent:
-                original_confidence = final_confidence
-                final_confidence = max(0.0, final_confidence - fred_penalty)
-                self.logger.info(f"Confiança ajustada por FRED: {original_confidence:.3f} -> {final_confidence:.3f} devido a {fred_event_info.name}")
-            
-            # === 7. FILTROS FINAIS ===
-            if final_confidence < AI_CONFIG['prediction_threshold']:
-                self.logger.debug(f"Confiança final insuficiente para {symbol}: {final_confidence:.3f}")
-                return None
-            
-            # Verificar se a IA contradiz fortemente o sinal base
-            if ((base_signal['action'] == 'BUY' and ai_probability < 0.3 and ai_confidence > 0.7) or
-                (base_signal['action'] == 'SELL' and ai_probability > 0.7 and ai_confidence > 0.7)):
-                self.logger.info(f"IA contradiz sinal base para {symbol} com alta confiança, cancelando.")
-                return None
-            
-            return EnhancedTradingSignal(
-                symbol=symbol,
-                action=base_signal['action'],
-                base_confidence=base_signal['confidence'],
-                ai_probability=ai_probability,
-                ai_confidence=ai_confidence,
-                final_confidence=final_confidence,
-                pattern_score=pattern_score,
-                sentiment_score=sentiment_score,
-                features=features,
-                entry_price=base_signal['entry_price'],
-                stop_loss=base_signal['stop_loss'],
-                take_profit=base_signal['take_profit'],
-                risk_reward=base_signal['risk_reward'],
-                timestamp=datetime.now()
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao gerar sinal enhanced para {symbol}: {e}", exc_info=True)
-            return None
-    
-    def generate_base_signal(self, df: pd.DataFrame, symbol: str) -> Optional[Dict]:
-        """Gera sinal base usando análise técnica tradicional"""
-        try:
-            if len(df) < 30:
-                return None
-            
-            # Calcular indicadores
-            df = df.copy()
-            
-            # SuperTrend (usará a versão atualizada no ml_predictor)
-            supertrend_dir = self.ml_predictor.calculate_supertrend_direction(df)
-            
-            # VWAP
-            vwap = self.ml_predictor.calculate_vwap(df).iloc[-1]
-            current_price = df['Close'].iloc[-1] # Use maiúscula
-            
-            # RSI
-            rsi = ta.momentum.rsi(df['Close'], window=14).iloc[-1] # Use maiúscula
-            
-            # Volume
-            volume_ma = df['Volume'].rolling(20).mean().iloc[-1] # Use maiúscula
-            volume_ratio = df['Volume'].iloc[-1] / volume_ma if volume_ma > 0 else 1.0 # Use maiúscula
-            
-            # ATR
-            atr = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], 14).iloc[-1] # Use maiúsculas
-            
-            # Lógica de sinal simplificada
-            action = None
-            confidence = 0.0
-            
-            # Condições para BUY
-            if (supertrend_dir == 1 and 
-                current_price > vwap and
-                rsi < self.risk_config['rsi_overbought'] and # Use overbought for exit condition
-                volume_ratio >= self.risk_config['min_volume_ratio']):
-                action = 'BUY'
-                confidence = 0.7
-            
-            # Condições para SELL
-            elif (supertrend_dir == -1 and 
-                  current_price < vwap and
-                  rsi > self.risk_config['rsi_oversold'] and # Use oversold for exit condition
-                  volume_ratio >= self.risk_config['min_volume_ratio']):
-                action = 'SELL'
-                confidence = 0.7
-            
-            if not action:
-                return None
-            
-            # Calcular níveis
-            if pd.isna(atr) or atr <= 0:
-                atr = current_price * 0.002
-            
-            if action == 'BUY':
-                stop_loss = current_price - (atr * self.risk_config['stop_loss_atr_multiplier'])
-                take_profit = current_price + (atr * self.risk_config['take_profit_atr_multiplier'])
-            else:
-                stop_loss = current_price + (atr * self.risk_config['stop_loss_atr_multiplier'])
-                take_profit = current_price - (atr * self.risk_config['take_profit_atr_multiplier'])
-            
-            risk_reward = abs(take_profit - current_price) / abs(stop_loss - current_price) if abs(stop_loss - current_price) > 0.0001 else 0.0
-            
-            return {
-                'action': action,
-                'confidence': confidence,
-                'entry_price': current_price,
-                'stop_loss': stop_loss,
-                'take_profit': take_profit,
-                'risk_reward': risk_reward
-            }
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao gerar sinal base: {e}", exc_info=True)
-            return None
-    
-    def calculate_final_confidence(self, base_confidence: float, ai_probability: float, 
-                                   ai_confidence: float, pattern_score: float, 
-                                   sentiment_score: float, action: str) -> float:
-        """Combina todas as análises em uma confiança final"""
-        try:
-            # Pesos para cada componente
-            weights = {
-                'base': 0.40,        # 40% - Análise técnica tradicional
-                'ai': 0.30,          # 30% - Predição de ML
-                'pattern': 0.15,     # 15% - Padrões históricos
-                'sentiment': 0.15    # 15% - Sentimento
-            }
-            
-            # Normalizar ai_probability baseado na ação
-            if action == 'BUY':
-                ai_score = ai_probability  # Para BUY, queremos alta probabilidade
-            else:
-                ai_score = 1 - ai_probability  # Para SELL, queremos baixa probabilidade (prob de BUY ser baixa)
-            
-            # Ajustar pattern_score para a ação
-            # Assume que pattern_score > 0.5 é bullish, < 0.5 bearish
-            pattern_adjusted = pattern_score
-            if action == 'SELL':
-                pattern_adjusted = 1 - pattern_score
-            
-            # Ajustar sentiment para a ação
-            if action == 'BUY':
-                sentiment_adjusted = sentiment_score  # Sentimento positivo favorece BUY
-            else:
-                sentiment_adjusted = 1 - sentiment_score  # Sentimento negativo favorece SELL
-            
-            # Calcular confiança ponderada
-            final_confidence = (
-                weights['base'] * base_confidence +
-                weights['ai'] * ai_score * ai_confidence +  # Modular por ai_confidence
-                weights['pattern'] * pattern_adjusted +
-                weights['sentiment'] * sentiment_adjusted
-            )
-            
-            # Aplicar boost se IA estiver muito confiante
-            if ai_confidence > 0.8:
-                boost = self.risk_config['ai_confidence_boost'] * ai_confidence
-                final_confidence += boost
-            
-            # Limitar entre 0 e 1
-            final_confidence = max(0.0, min(1.0, final_confidence))
-            
-            return final_confidence
-            
-        except Exception as e:
-            self.logger.error(f"Erro ao calcular confiança final: {e}")
-            return base_confidence
-    
-    def update_training_data(self, signal: Any, outcome: bool): # Changed to Any for compatibility
-        """Atualiza dados de treinamento com resultado do trade"""
-        try:
-            # Adicionar amostra para o modelo ML
-            if ML_AVAILABLE:
-                if hasattr(signal, 'features') and signal.features is not None:
-                    self.ml_predictor.add_training_sample(signal.features, outcome)
-                else:
-                    self.logger.warning("Sinal sem features para treinamento de ML. Pulando.")
-            
-            # Adicionar resultado para pattern matching
-            if signal.symbol in self.data_cache and '5m' in self.data_cache[signal.symbol]:
-                df = self.data_cache[signal.symbol]['5m']
-                pattern = self.pattern_matcher.extract_pattern(df)
-                self.pattern_matcher.add_outcome(pattern, outcome)
-            
-            # Log do aprendizado
-            result_text = "GANHOU" if outcome else "PERDEU"
-            self.logger.info(f"📚 Aprendizado: {signal.symbol} {signal.action} {result_text}")
-            
-            # For logging purposes only, convert to dict if not already
-            signal_dict = signal.to_dict() if hasattr(signal, 'to_dict') else signal 
-
-            self.logger.info(f"   Base: {signal_dict.get('base_confidence', 0.0):.3f} | IA: {signal_dict.get('ai_probability', 0.5):.3f} | Final: {signal_dict.get('final_confidence', 0.0):.3f}")
-            
-            # Verificar se deve retreinar
-            if ML_AVAILABLE and self.ml_predictor.should_retrain():
-                self.logger.info("🔄 Iniciando retreinamento do modelo...")
-                self.ml_predictor.train_model()
-                
-        except Exception as e:
-            self.logger.error(f"Erro ao atualizar dados de treinamento: {e}", exc_info=True)
-
-# ============================================================================
-# 🤖 BOT PRINCIPAL COM IA
-# ============================================================================
-
-class AIEnhancedTradingBot:
-    """Bot de trading com IA integrada"""
-    
-    def __init__(self, environment: str = 'testnet'):
-        self.environment = environment
-        self.urls = get_base_urls()
-        self.analyzer = AIEnhancedAnalyzer(environment)
-        
-        # Estado do bot
-        self.active_positions = []
-        self.signals_history = []
-        self.trade_history = [] # Stores detailed trade outcomes for Kelly criterion
-        self.last_trade_time = {}
-        self.last_reversal_time = {}
-        self.daily_trades = 0
-        self.daily_reset_date = datetime.now().date()
-        self.running = False
-        self.fred_last_checked_for_cooldown = None # Para gerenciar o cooldown do FRED
-
-        # Performance tracking com métricas de IA
-        self.performance = {
-            "current_balance": 0.0,
-            "start_balance": 0.0,
-            "total_pnl": 0.0,
-            "roi_percentage": 0.0,
-            "winning_trades": 0,
-            "total_trades": 0,
-            "win_rate": 0.0,
-            "max_drawdown": 0.0, # To be calculated more robustly
-            "daily_pnl": 0.0,
-            "daily_trades": 0,
-            "last_update": None,
-            "session_start_time": datetime.now().isoformat(),
-            "ai_accuracy": 0.0,
-            "ai_predictions": 0,
-            "ai_correct_predictions": 0,
-            "pattern_accuracy": 0.0, # Not directly calculated yet, but kept for future use
-            "sentiment_impact": 0.0 # Not directly calculated yet, but kept for future use
-        }
-        
-        # Configurar logging
-        log_level = logging.DEBUG if self.environment == 'testnet' else logging.INFO
-        # Remova ou comente a linha abaixo se você estiver usando uvicorn --log-level debug
-        # logging.basicConfig(
-        #     level=log_level,
-        #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        #     handlers=[
-        #         logging.FileHandler(f'ai_bot_{self.environment}.log'),
-        #         logging.StreamHandler()
-        #     ]
-        # )
-        self.logger = logging.getLogger('AIBot') # Obtenha o logger, ele será configurado pelo root logger do FastAPI/Uvicorn
-        self.logger.setLevel(log_level) # Defina o nível específico para AIBot
-
-        
-        self.logger.info(f"🤖 AIEnhancedTradingBot inicializado - {environment.upper()}")
-        if ML_AVAILABLE:
-            self.logger.info("✅ Machine Learning disponível")
-        else:
-            self.logger.warning("⚠️ Machine Learning NÃO disponível")
-        if YFINANCE_AVAILABLE:
-            self.logger.info("✅ YFinance disponível para dados históricos")
-        else:
-            self.logger.warning("⚠️ YFinance NÃO disponível. Backtesting pode ser limitado.")
-        if TALIB_AVAILABLE:
-            self.logger.info("✅ TA-Lib disponível para indicadores avançados")
-        else:
-            self.logger.warning("⚠️ TA-Lib NÃO disponível. Algumas análises avançadas podem ser limitadas.")
-        if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
-            self.logger.info("✅ FRED API configurada. Calendário econômico ativo.")
-        else:
-            self.logger.warning("⚠️ FRED API Key não configurada/inválida. Calendário econômico inativo.")
-        if CRYPTOPANIC_API_KEY and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC":
-            self.logger.info("📰 CryptoPanic: ATIVO (Sentimento de Cripto)")
-        else:
-            self.logger.warning("⚠️ CryptoPanic: INATIVO (chave API ausente/inválida)")
-
-            
-    def get_account_balance(self) -> float:
-        """Obtém saldo da conta"""
-        try:
-            endpoint = "/futures/usdt/accounts"
-            headers = sign_request("GET", endpoint)
-            full_url = f"{self.urls['rest']}/api/v4{endpoint}"
-            
-            response = requests.get(full_url, headers=headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                balance = float(data.get('available', 0))
-                
-                if self.performance["start_balance"] == 0.0:
-                    self.performance["start_balance"] = balance
-                self.performance["current_balance"] = balance
-                return balance
-            
-            self.logger.error(f"Falha ao obter saldo: {response.status_code}, {response.text}")
-            return 0.0
-        except Exception as e:
-            self.logger.error(f"Erro ao obter saldo: {e}")
-            return 0.0
-    
-    def get_current_price(self, symbol: str) -> float:
-        """Obtém preço atual"""
-        try:
-            endpoint = "/futures/usdt/tickers"
-            query_string = f"contract={symbol}"
-            full_url = f"{self.urls['rest']}/api/v4{endpoint}?{query_string}"
-            
-            response = requests.get(full_url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data and isinstance(data, list) and len(data) > 0:
-                    return float(data[0].get('last', 0))
-            self.logger.error(f"Falha ao obter preço {symbol}: {response.status_code}")
-            return 0.0
-        except Exception as e:
-            self.logger.error(f"Erro ao obter preço {symbol}: {e}")
-            return 0.0
-    
-    def get_ohlcv_data(self, symbol: str, interval: str = '5m', limit: int = 200) -> pd.DataFrame:
-        """
-        Busca dados OHLCV com fallback robusto.
-        Para live/testnet, tenta Gate.io primeiro, depois YFinance como fallback.
-        Para backtesting (simulação), usa yfinance.
-        """
-        global USE_YFINANCE_PRIMARY # Acessa a flag global
-
-        if self.environment == 'simulate_backtest' and YFINANCE_AVAILABLE:
-            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
-            if not df.empty:
-                self.logger.debug(f"✅ YFinance primário (simulação): {symbol} - {len(df)} candles")
-                return df
-            else:
-                self.logger.warning(f"⚠️ YFinance primário (simulação) retornou dados vazios para {symbol}")
-        
-        if USE_YFINANCE_PRIMARY and YFINANCE_AVAILABLE:
-            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
-            if not df.empty:
-                self.logger.debug(f"✅ YFinance primário: {symbol} - {len(df)} candles")
-                return df
-            else:
-                self.logger.warning(f"⚠️ YFinance primário retornou dados vazios para {symbol}")
-        
-        # Tentar Gate.io se YFinance falhar ou não for primário
-        try:
-            df = get_gateio_data_safe(symbol, interval, limit) # Chama a função global
-            if not df.empty:
-                self.logger.debug(f"✅ Gate.io: {symbol} - {len(df)} candles")
-                return df
-            else:
-                self.logger.warning(f"⚠️ Gate.io retornou dados vazios para {symbol}")
-        except Exception as gate_error:
-            self.logger.warning(f"Gate.io falhou para {symbol}: {gate_error}")
-        
-        # Fallback final para YFinance se não for primário e ainda não usado
-        if not USE_YFINANCE_PRIMARY and YFINANCE_AVAILABLE:
-            df = get_yfinance_data_safe(symbol, interval, limit) # Chama a função global
-            if not df.empty:
-                self.logger.info(f"✅ YFinance fallback: {symbol} - {len(df)} candles")
-                return df
-            else:
-                self.logger.warning(f"⚠️ YFinance fallback retornou dados vazios para {symbol}")
-        
-        self.logger.error(f"❌ Todas as fontes de dados falharam para {symbol}")
-        return pd.DataFrame()
-        
-    # Removidos os métodos _get_yfinance_data e _get_gateio_data, pois as funções globais são chamadas diretamente
-    
-    def update_data_cache(self):
-        """Atualiza cache de dados com tratamento melhorado de erros"""
-        try:
-            for symbol in TRADING_SYMBOLS:
-                if symbol not in self.analyzer.data_cache:
-                    self.analyzer.data_cache[symbol] = {}
-                
-                # Timeframes a serem atualizados (5m, 15m, 1h)
-                for timeframe in ['5m', '15m', '1h']:
-                    cache_key = f"{symbol}_{timeframe}"
-                    now = datetime.now()
-                    
-                    # Intervalos de atualização mais conservadores
-                    update_intervals = {
-                        '5m': timedelta(minutes=3),   # A cada 3 min para 5m
-                        '15m': timedelta(minutes=8),  # A cada 8 min para 15m
-                        '1h': timedelta(minutes=20)   # A cada 20 min para 1h
-                    }
-                    
-                    update_interval = update_intervals.get(timeframe, timedelta(minutes=5))
-                                    
-                    if (cache_key not in self.analyzer.last_cache_update or 
-                        now - self.analyzer.last_cache_update[cache_key] > update_interval):
-                        
-                        try:
-                            # Usar o método corrigido com fallback
-                            df = self.get_ohlcv_data(symbol, timeframe, 200)
-                            
-                            if not df.empty:
-                                # Calcular indicadores básicos se houver dados suficientes
-                                if len(df) >= 20:
-                                    try:
-                                        df['rsi'] = ta.momentum.rsi(df['Close'], window=14) # Use 'Close'
-                                    except Exception as e:
-                                        self.logger.warning(f"Erro ao calcular RSI para {symbol} {timeframe}: {e}")
-                                
-                                if len(df) >= 50:
-                                    try:
-                                        df['sma_20'] = df['Close'].rolling(20).mean() # Use 'Close'
-                                        df['sma_50'] = df['Close'].rolling(50).mean() # Use 'Close'
-                                    except Exception as e:
-                                        self.logger.warning(f"Erro ao calcular SMAs para {symbol} {timeframe}: {e}")
-                                
-                                self.analyzer.data_cache[symbol][timeframe] = df
-                                self.analyzer.last_cache_update[cache_key] = now
-                                self.logger.debug(f"✅ Cache atualizado: {symbol} {timeframe} - {len(df)} candles")
-                            else:
-                                self.logger.warning(f"⚠️ Dados vazios para {symbol} {timeframe}")
-                                
-                        except Exception as symbol_error:
-                            self.logger.warning(f"⚠️ Falha ao atualizar cache: {symbol} {timeframe} - {symbol_error}")
-                            # Não é um erro crítico, apenas um aviso, então continuamos com o próximo timeframe/símbolo.
-                            continue
-                    
-        except Exception as e:
-            self.logger.error(f"❌ Erro crítico no update_data_cache: {e}", exc_info=True)
-    
-    def calculate_optimal_position_size(self, current_price: float, risk_factor: float = 0.25) -> float:
-        """
-        Calcula o tamanho ótimo da posição usando uma versão simplificada do Kelly Criterion.
-        Limita o risco por trade a uma fração do saldo disponível.
-        
-        Args:
-            current_price (float): Preço atual do ativo.
-            risk_factor (float): Fator de risco (e.g., 0.25 para 25% do Kelly fraction).
-                                 Isso limita o risco por trade para evitar alta volatilidade.
-        Returns:
-            float: Número de contratos a serem negociados.
-        """
-        total_trades = self.performance["total_trades"]
-        winning_trades = self.performance["winning_trades"]
-        
-        if total_trades < AI_CONFIG['min_training_samples']: # Need enough trades for statistics
-            self.logger.info("Ainda não há trades suficientes para calcular tamanho de posição otimizado. Usando tamanho fixo.")
-            return self.risk_config['position_size_usdt'] / current_price if current_price > 0 else 0
-            
-        win_rate = winning_trades / total_trades if total_trades > 0 else 0.5 # Default to 0.5 if no trades
-        
-        # Calculate average win and average loss from trade history
-        wins = [t['pnl'] for t in self.trade_history if t['pnl'] > 0]
-        losses = [t['pnl'] for t in self.trade_history if t['pnl'] < 0]
-        
-        avg_win = sum(wins) / len(wins) if wins else 0.01 # Avoid division by zero
-        avg_loss = sum(losses) / len(losses) if losses else -0.01 # Avoid division by zero, convert to positive for Kelly
-        avg_loss = abs(avg_loss) # Kelly uses positive values for losses
-        
-        if avg_win == 0 or avg_loss == 0:
-            self.logger.warning("Average win or loss is zero, cannot apply Kelly Criterion. Using fixed size.")
-            return self.risk_config['position_size_usdt'] / current_price if current_price > 0 else 0
-            
-        if win_rate * avg_win - (1 - win_rate) * avg_loss <= 0:
-            self.logger.warning("Edge is not positive (Kelly criterion suggests not to bet). Using fixed size.")
-            return self.risk_config['position_size_usdt'] / current_price if current_price > 0 else 0
-
-        kelly_fraction = (win_rate * avg_win - (1 - win_rate) * avg_loss) / avg_win
-        
-        # Limit Kelly fraction to prevent over-leveraging
-        # Common practice is to use a fraction of Kelly (e.g., 0.25)
-        # And also an absolute maximum (e.g., 5% of balance for a single trade)
-        
-        # Current balance is needed for absolute position sizing
-        current_balance = self.get_account_balance()
-        if current_balance == 0:
-            self.logger.warning("Current balance is zero. Cannot calculate position size.")
-            return 0
-            
-        # Maximum capital to risk per trade (e.g., 5% of total balance, or a fixed USDT amount if balance is very low)
-        max_capital_per_trade_usdt = max(self.risk_config['position_size_usdt'], current_balance * 0.05)
-        
-        # Convert Kelly fraction to USDT amount
-        calculated_usdt_size = kelly_fraction * risk_factor * current_balance
-        
-        # Use the minimum of calculated_usdt_size and max_capital_per_trade_usdt
-        position_usdt = min(calculated_usdt_size, max_capital_per_trade_usdt)
-        
-        contracts = max(1, int(position_usdt / current_price))
-        
-        self.logger.info(f"Kelly Calc: Win Rate: {win_rate:.2f}, Avg Win: ${avg_win:.2f}, Avg Loss: ${avg_loss:.2f}")
-        self.logger.info(f"Kelly Fraction: {kelly_fraction:.3f}, Desired USDT: ${position_usdt:.2f}, Contracts: {contracts}")
-        return contracts
-
-    def place_market_order(self, symbol: str, side: str, contracts: Optional[float] = None) -> Optional[dict]:
-        """Coloca ordem a mercado"""
-        try:
-            current_price = self.get_current_price(symbol)
-            if current_price == 0:
-                self.logger.error(f"Preço inválido para {symbol} ao tentar colocar ordem.")
-                return None
-            
-            # Use Kelly Criterion for position sizing if not provided
-            if contracts is None:
-                contracts = self.calculate_optimal_position_size(current_price)
-            
-            if contracts <= 0:
-                self.logger.warning(f"Tamanho de contratos inválido ({contracts}) para {symbol}.")
-                return None
-
-            endpoint = "/futures/usdt/orders"
-            order_data = {
-                "contract": symbol,
-                "size": contracts if side == "buy" else -contracts,
-                "text": f"ai_bot_{int(time.time())}"
-            }
-            
-            body = json.dumps(order_data)
-            headers = sign_request("POST", endpoint, "", body)
-            full_url = f"{self.urls['rest']}/api/v4{endpoint}"
-            
-            response = requests.post(full_url, headers=headers, data=body, timeout=15)
-            if response.status_code in [200, 201]:
-                self.logger.info(f"✅ Ordem {side.upper()} {symbol}: {contracts} contratos @ ${current_price:.4f}")
-                return response.json()
-            
-            self.logger.error(f"Falha na ordem {side} {symbol}: {response.status_code}, {response.text}")
-            return None
-        except Exception as e:
-            self.logger.error(f"Erro ao colocar ordem: {e}", exc_info=True)
-            return None
-    
-    def can_trade_symbol(self, signal_symbol: str) -> bool:
-        """Verificações para trading"""
-        today = datetime.now().date()
-        if today != self.daily_reset_date:
-            self.daily_trades = 0
-            self.daily_reset_date = today
-            self.performance["daily_trades"] = 0
-            self.performance["daily_pnl"] = 0.0
-        
-        risk_config = RISK_CONFIG[self.environment]
-        
-        if self.daily_trades >= risk_config['max_daily_trades']:
-            self.logger.warning(f"Limite diário de trades atingido: {self.daily_trades}/{risk_config['max_daily_trades']}")
-            return False
-        
-        if len(self.active_positions) >= risk_config['max_open_positions']:
-            self.logger.info(f"Limite de posições abertas atingido: {len(self.active_positions)}/{risk_config['max_open_positions']}")
-            return False
-        
-        # Cooldown por trade no mesmo símbolo
-        if signal_symbol in self.last_trade_time:
-            cooldown_end = self.last_trade_time[signal_symbol] + timedelta(minutes=risk_config['cooldown_minutes'])
-            if datetime.now() < cooldown_end:
-                remaining = (cooldown_end - datetime.now()).total_seconds() / 60
-                self.logger.debug(f"Cooldown para {signal_symbol}: {remaining:.1f}min restantes.")
-                return False
-        
-        # Cooldown por evento FRED de alto impacto
-        # Verifica se há um evento FRED de alto impacto que justifique o cooldown
-        if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
-            self.analyzer._update_fred_events_cache() # Garante cache FRED atualizado
-            
-            current_dt_fred_check = datetime.now()
-            if self.environment == 'simulate_backtest' and hasattr(self.analyzer.fred_calendar, 'datetime_now_override') and self.analyzer.fred_calendar.datetime_now_override:
-                current_dt_fred_check = self.analyzer.fred_calendar.datetime_now_override
-
-            for event in self.analyzer.fred_events_cache:
-                if event.importance == "HIGH":
-                    try:
-                        event_datetime = event.date.replace(hour=int(event.time.split(':')[0]), minute=int(event.time.split(':')[1].split(' ')[0]))
-                    except (ValueError, AttributeError):
-                        event_datetime = event.date # Fallback if time parsing fails
-                    
-                    time_diff_hours = (event_datetime - current_dt_fred_check).total_seconds() / 3600
-                    
-                    # Se o evento está dentro da janela de cooldown (antes ou depois)
-                    if abs(time_diff_hours) * 60 <= AI_CONFIG['fred_cooldown_minutes_high_impact']:
-                        self.logger.warning(f"Trade bloqueado devido a evento FRED de alto impacto '{event.name}'. Cooldown ativo.")
-                        return False
-
-        if any(pos['symbol'] == signal_symbol for pos in self.active_positions):
-            self.logger.debug(f"Posição já existe para {signal_symbol}. Não abrir nova.")
-            return False
-        
-        return True
-    
-    def execute_enhanced_signal(self, signal: EnhancedTradingSignal) -> bool:
-        """Executa sinal enhanced com IA"""
-        if not signal or not self.can_trade_symbol(signal.symbol):
-            return False
-        
-        side = "buy" if signal.action == "BUY" else "sell"
-        
-        # Get optimal contracts using Kelly criterion
-        contracts_to_trade = self.calculate_optimal_position_size(signal.entry_price)
-        
-        if contracts_to_trade <= 0:
-            self.logger.warning(f"Não foi possível determinar um tamanho de posição válido para {signal.symbol}. Cancelando trade.")
-            return False
-
-        # CORREÇÃO: Remova a duplicação de 'contracts='
-        order = self.place_market_order(signal.symbol, side, contracts_to_trade)
-        
-        if order:
-            time.sleep(2) # Give some time for order to execute and price to update
-            actual_price = self.get_current_price(signal.symbol)
-            
-            if actual_price == 0:
-                self.logger.error(f"Preço de execução inválido para {signal.symbol} após a ordem.")
-                return False
-            
-            position = {
-                'symbol': signal.symbol,
-                'side': signal.action.lower(),
-                'size': float(order.get('size', 1)),
-                'entry_price': actual_price,
-                'current_price': actual_price, # Will be updated by manage_positions
-                'stop_loss': signal.stop_loss,
-                'take_profit': signal.take_profit,
-                'signal': signal.to_dict(), # Store the signal details as dict
-                'order_id': order.get('id'),
-                'timestamp': datetime.now(),
-                'pnl': 0.0,
-                'pnl_percent': 0.0,
-                'ai_prediction': signal.ai_probability,
-                'pattern_score': signal.pattern_score,
-                'sentiment_score': signal.sentiment_score
-            }
-            
-            self.active_positions.append(position)
-            self.last_trade_time[signal.symbol] = datetime.now()
-            self.daily_trades += 1
-            self.performance["total_trades"] += 1
-            self.performance["daily_trades"] += 1
-            self.performance["ai_predictions"] += 1 # Count AI-driven trades
-            self.signals_history.append(signal)
-            
-            self.logger.info(f"🎯 POSIÇÃO ABERTA COM IA: {signal.action} {signal.symbol}")
-            self.logger.info(f"  💰 Entrada: ${actual_price:.4f} | Contratos: {contracts_to_trade:.2f}")
-            self.logger.info(f"  🧠 IA Prob: {signal.ai_probability:.3f} | Conf Final: {signal.final_confidence:.3f}")
-            self.logger.info(f"  📊 Pattern: {signal.pattern_score:.3f} | Sentiment: {signal.sentiment_score:.3f}")
-            self.logger.info(f"  🎲 Base: {signal.base_confidence:.3f} | R/R: {signal.risk_reward:.2f}")
-            self.logger.info(f"  🆕 TALIB Score: {signal.features.talib_entrada_score:.1f}")
-
-            return True
-            
-        return False
-    
-    def manage_positions(self):
-        """Gestão de posições com feedback para IA"""
-        positions_to_close = []
-        
-        for position in list(self.active_positions): # Iterate over a copy to allow modification
-            try:
-                current_price = self.get_current_price(position['symbol'])
-                if current_price == 0:
-                    self.logger.warning(f"Não foi possível obter o preço atual para {position['symbol']}. Pulando gerenciamento.")
-                    continue
-                
-                position['current_price'] = current_price
-                
-                # Calcular PnL
-                if position['side'] == 'buy':
-                    pnl = (current_price - position['entry_price']) * abs(position['size'])
-                else: # 'sell' (short)
-                    pnl = (position['entry_price'] - current_price) * abs(position['size'])
-                
-                position['pnl'] = pnl
-                position['pnl_percent'] = (pnl / (position['entry_price'] * abs(position['size']))) * 100 if position['entry_price'] * abs(position['size']) != 0 else 0
-                
-                # Verificar condições de saída
-                should_close = False
-                close_reason = ""
-                
-                # Stop Loss / Take Profit
-                if position['side'] == 'buy':
-                    if current_price <= position['stop_loss']:
-                        should_close = True
-                        close_reason = "Stop Loss"
-                    elif current_price >= position['take_profit']:
-                        should_close = True
-                        close_reason = "Take Profit"
-                else: # 'sell'
-                    if current_price >= position['stop_loss']:
-                        should_close = True
-                        close_reason = "Stop Loss"
-                    elif current_price <= position['take_profit']:
-                        should_close = True
-                        close_reason = "Take Profit"
-                
-                if should_close:
-                    positions_to_close.append((position, close_reason, pnl))
-                    
-            except Exception as e:
-                self.logger.error(f"Erro ao gerenciar posição {position.get('symbol', 'N/A')}: {e}", exc_info=True)
-        
-        # Close positions
-        for position, reason, pnl in positions_to_close:
-            if position in self.active_positions: 
-                self.close_position_with_ai_feedback(position, reason, pnl)
-                self.active_positions.remove(position)
-    
-    def close_position_with_ai_feedback(self, position: dict, reason: str, pnl: float):
-        """Fecha posição e fornece feedback para IA"""
-        try:
-            close_side = "sell" if position['side'] == "buy" else "buy"
-            order = self.place_market_order(position['symbol'], close_side, contracts=abs(position['size'])) # Ensure closing the full size
-            
-            if order:
-                outcome = pnl > 0
-                roi_trade = (pnl / (position['entry_price'] * abs(position['size']))) * 100 if position['entry_price'] * abs(position['size']) != 0 else 0
-                
-                self.logger.info(f"🔚 POSIÇÃO FECHADA: {position['symbol']} - {reason}")
-                self.logger.info(f"  💰 PnL: ${pnl:.2f} ({roi_trade:.2f}%)")
-                self.logger.info(f"  🧠 IA estava certa: {'SIM' if outcome else 'NÃO'}")
-                
-                # Registrar trade com métricas de IA
-                trade_record = {
-                    'symbol': position['symbol'],
-                    'side': position['side'],
-                    'entry_price': position['entry_price'],
-                    'exit_price': position['current_price'],
-                    'pnl': pnl,
-                    'pnl_percent': roi_trade,
-                    'reason': reason,
-                    'duration_minutes': (datetime.now() - position['timestamp']).total_seconds() / 60,
-                    'ai_prediction': position.get('ai_prediction', 0.5),
-                    'pattern_score': position.get('pattern_score', 0.5),
-                    'sentiment_score': position.get('sentiment_score', 0.5),
-                    'ai_was_correct': outcome,
-                    'timestamp': datetime.now().isoformat()
-                }
-                self.trade_history.append(trade_record)
-                
-                # Atualizar performance
-                self.performance["total_pnl"] += pnl
-                self.performance["daily_pnl"] += pnl
-                
-                if pnl > 0:
-                    self.performance["winning_trades"] += 1
-                    # Check if AI's prediction aligns with winning outcome
-                    if (position['side'] == 'buy' and position.get('ai_prediction', 0.5) >= AI_CONFIG['prediction_threshold']) or \
-                       (position['side'] == 'sell' and position.get('ai_prediction', 0.5) < (1 - AI_CONFIG['prediction_threshold'])):
-                        self.performance["ai_correct_predictions"] += 1
-                
-                # Recalcular métricas
-                if self.performance["total_trades"] > 0:
-                    self.performance["win_rate"] = (self.performance["winning_trades"] / self.performance["total_trades"]) * 100
-                
-                if self.performance["ai_predictions"] > 0:
-                    self.performance["ai_accuracy"] = (self.performance["ai_correct_predictions"] / self.performance["ai_predictions"]) * 100
-                
-                if self.performance["start_balance"] > 0:
-                    self.performance["roi_percentage"] = (self.performance["total_pnl"] / self.performance["start_balance"]) * 100
-                
-                # Feedback para IA
-                if 'signal' in position and isinstance(position['signal'], dict):
-                    original_signal_dict = position['signal']
-                    features_for_feedback = None
-                    if position['symbol'] in self.analyzer.data_cache and '5m' in self.analyzer.data_cache[position['symbol']]:
-                        df_current = self.analyzer.data_cache[position['symbol']]['5m']
-                        pattern_score_from_pos = position.get('pattern_score', 0.5)
-                        # Passa o símbolo para extract_features para que ele possa acessar outros timeframes
-                        features_for_feedback = self.analyzer.ml_predictor.extract_features(df_current, pattern_score=pattern_score_from_pos, symbol=position['symbol'])
-
-                    # Garante que features_for_feedback não é None antes de criar EnhancedTradingSignal
-                    if features_for_feedback:
-                        signal_for_feedback = EnhancedTradingSignal(
-                            symbol=original_signal_dict['symbol'],
-                            action=original_signal_dict['action'],
-                            base_confidence=original_signal_dict['base_confidence'],
-                            ai_probability=original_signal_dict['ai_probability'],
-                            ai_confidence=original_signal_dict['ai_confidence'],
-                            final_confidence=original_signal_dict['final_confidence'],
-                            pattern_score=original_signal_dict['pattern_score'],
-                            sentiment_score=original_signal_dict['sentiment_score'],
-                            features=features_for_feedback,
-                            entry_price=original_signal_dict['entry_price'],
-                            stop_loss=original_signal_dict['stop_loss'],
-                            take_profit=original_signal_dict['take_profit'],
-                            risk_reward=original_signal_dict['risk_reward'],
-                            timestamp=datetime.fromisoformat(original_signal_dict['timestamp'])
-                        )
-                        self.analyzer.update_training_data(signal_for_feedback, outcome)
-                    else:
-                        self.logger.warning(f"Não foi possível re-extrair features para feedback de IA para {position['symbol']}.")
-                else:
-                    self.logger.warning("No signal data found in position for AI feedback.")
-                
-                self.performance["last_update"] = datetime.now().isoformat()
-                
-        except Exception as e:
-            self.logger.error(f"Erro ao fechar posição: {e}", exc_info=True)
-    
-    def scan_markets_with_ai(self):
-        """Escaneia mercados usando IA"""
-        for symbol in TRADING_SYMBOLS:
-            try:
-                if any(pos['symbol'] == symbol for pos in self.active_positions):
-                    continue
-                
-                # Gerar sinal enhanced com IA
-                signal = self.analyzer.generate_enhanced_signal(symbol, self.active_positions)
-                
-                if signal:
-                    self.logger.info(f"🔔 SINAL IA DETECTADO: {signal.action} {signal.symbol}")
-                    self.logger.info(f"  🧠 IA Prob: {signal.ai_probability:.3f} | Conf Final: {signal.final_confidence:.3f}")
-                    self.logger.info(f"  📊 Pattern: {signal.pattern_score:.3f} | Sentiment: {signal.sentiment_score:.3f}")
-                    self.logger.info(f"  🎲 Base: {signal.base_confidence:.3f} | R/R: {signal.risk_reward:.2f}")
-                    self_logger.info(f"  🆕 TALIB Score: {signal.features.talib_entrada_score:.1f}")
-
-                    success = self.execute_enhanced_signal(signal)
-                    if success:
-                        self.logger.info(f"✅ Sinal IA executado com sucesso para {signal.symbol}")
-                    else:
-                        self.logger.warning(f"❌ Falha ao executar sinal IA para {signal.symbol}")
-                        
-            except Exception as e:
-                self.logger.error(f"Erro ao escanear {symbol} com IA: {e}", exc_info=True)
-    
-    def run(self):
-        """Loop principal com IA"""
-        self.running = True
-        self.get_account_balance()
-        
-        self.logger.info(f"🚀 BOT COM IA v2.1 INICIADO ({self.environment.upper()})")
-        self.logger.info(f"💰 Saldo inicial: ${self.performance['start_balance']:.2f}")
-        self.logger.info(f"🧠 ML Disponível: {'SIM' if ML_AVAILABLE else 'NÃO'}")
-        self.logger.info(f"📊 XGBoost: {'SIM' if XGB_AVAILABLE else 'NÃO'}")
-        self.logger.info(f"💭 Sentiment: {'SIM' if SENTIMENT_AVAILABLE else 'NÃO'}")
-        self.logger.info(f"📈 YFinance: {'SIM' if YFINANCE_AVAILABLE else 'NÃO'}")
-        self.logger.info(f"📚 TALIB: {'SIM' if TALIB_AVAILABLE else 'NÃO'}") # Log TALIB status
-        if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
-            self.logger.info("📅 Calendário FRED: ATIVO")
-        else:
-            self.logger.warning("⚠️ Calendário FRED: INATIVO (chave API ausente/inválida)")
-        if CRYPTOPANIC_API_KEY and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC":
-            self.logger.info("📰 CryptoPanic: ATIVO (Sentimento de Cripto)")
-        else:
-            self.logger.warning("⚠️ CryptoPanic: INATIVO (chave API ausente/inválida)")
-        
-        self.performance["session_start_time"] = datetime.now().isoformat()
-        
-        cycle_count = 0
-        
-        try:
-            while self.running:
-                cycle_start = time.time()
-                cycle_count += 1
-                
-                try:
-                    # 0. Atualizar eventos FRED (ocorre dentro do analyzer)
-                    # A cada ciclo, o analisador vai verificar se o cache do FRED precisa ser atualizado.
-                    
-                    # 1. Atualizar cache de dados (OHLCV)
-                    self.update_data_cache()
-                    
-                    # 2. Gerenciar posições (com feedback para IA)
-                    if self.active_positions:
-                        self.manage_positions()
-                    
-                    # 3. Escanear com IA
-                    self.scan_markets_with_ai()
-                    
-                    # 4. Verificar se precisa retreinar modelo
-                    if ML_AVAILABLE and cycle_count % 10 == 0 and self.analyzer.ml_predictor.should_retrain():
-                        self.logger.info("🔄 Retreinamento de modelo necessário...")
-                        self.analyzer.ml_predictor.train_model()
-                    
-                    # 5. Log periódico com IA
-                    if cycle_count % 20 == 0:
-                        self.log_ai_periodic_status()
-                    
-                    # 6. Aguardar próximo ciclo
-                    elapsed = time.time() - cycle_start
-                    sleep_time = max(1, 30 - elapsed) # Aim for a cycle every 30 seconds
-                    time.sleep(sleep_time)
-                    
-                except Exception as cycle_error:
-                    self.logger.error(f"Erro no ciclo {cycle_count}: {cycle_error}", exc_info=True)
-                    time.sleep(10) # Pause longer in case of error
-                    
-        except KeyboardInterrupt:
-            self.logger.info("🛑 Interrupção pelo usuário")
-        except Exception as e:
-            self.logger.error(f"❌ Erro crítico no bot: {e}", exc_info=True)
-        finally:
-            self.running = False
-            self.shutdown_ai_bot()
-    
-    def log_ai_periodic_status(self):
-        """Log periódico com métricas de IA"""
-        try:
-            current_balance = self.get_account_balance()
-            
-            self.logger.info("=" * 70)
-            self.logger.info(f"🧠 STATUS IA - {datetime.now().strftime('%H:%M:%S')}")
-            self.logger.info(f"💰 Saldo: ${current_balance:.2f} | PnL: ${self.performance['total_pnl']:.2f} ({self.performance['roi_percentage']:.2f}%)")
-            self.logger.info(f"📈 Trades: {self.performance['total_trades']} | Win Rate: {self.performance['win_rate']:.1f}%")
-            self.logger.info(f"🧠 IA Accuracy: {self.performance['ai_accuracy']:.1f}% | Predições: {self.performance['ai_predictions']}")
-            self.logger.info(f"🎯 Modelo Accuracy: {self.analyzer.ml_predictor.model_accuracy:.3f} | Samples: {len(self.analyzer.ml_predictor.training_data)}")
-            
-            # Adicionar status do FRED
-            if FRED_API_KEY and FRED_API_KEY != "DUMMY_KEY_FRED":
-                self.analyzer._update_fred_events_cache() # Atualiza cache para exibição no log
-                fred_high_impact_today = [e for e in self.analyzer.fred_events_cache if e.importance == "HIGH" and e.date.date() == datetime.now().date()]
-                if fred_high_impact_today:
-                    self.logger.info(f"📅 Eventos FRED HOJE (Alto Impacto):")
-                    for event in fred_high_impact_today:
-                        # Certifique-se de que event.time não é None antes de tentar dividir
-                        event_time_str = event.time.split(' ')[0] if event.time else "00:00"
-                        hours_until_release = (event.date.replace(hour=int(event_time_str.split(':')[0]), minute=int(event_time_str.split(':')[1])) - datetime.now()).total_seconds() / 3600
-                        self.logger.info(f"    - {event.name} ({event.time}): {event.actual} (Prev: {event.previous_value}) - Em {hours_until_release:.1f}h")
-                else:
-                    self.logger.info("📅 Nenhum evento FRED de Alto Impacto hoje.")
-
-            if self.active_positions:
-                self.logger.info(f"🔄 Posições Ativas ({len(self.active_positions)}):")
-                for pos in self.active_positions:
-                    duration = (datetime.now() - pos['timestamp']).total_seconds() / 60
-                    ai_pred = pos.get('ai_prediction', 0.5)
-                    self.logger.info(f"   📍 {pos['symbol']} {pos['side'].upper()}: PnL ${pos.get('pnl', 0):.2f} ({pos.get('pnl_percent', 0):.2f}%) | IA: {ai_pred:.3f} ({duration:.1f}min)")
-            
-            self.logger.info("=" * 70)
-            
-        except Exception as e:
-            self.logger.error(f"Erro no log de IA: {e}", exc_info=True)
-    
-    def shutdown_ai_bot(self):
-        """Encerramento com estatísticas de IA"""
-        try:
-            final_balance = self.get_account_balance()
-            
-            self.logger.info("🔴 ENCERRANDO BOT COM IA")
-            self.logger.info(f"💰 Saldo Final: ${final_balance:.2f}")
-            self.logger.info(f"📊 Performance Final:")
-            self.logger.info(f"   • Total PnL: ${self.performance['total_pnl']:.2f}")
-            self.logger.info(f"   • ROI: {self.performance['roi_percentage']:.2f}%")
-            self.logger.info(f"   • Win Rate: {self.performance['win_rate']:.1f}%")
-            self.logger.info(f"   • Total Trades: {self.performance['total_trades']}")
-            
-            self.logger.info(f"🧠 Estatísticas de IA:")
-            self.logger.info(f"   • IA Accuracy: {self.performance['ai_accuracy']:.1f}%")
-            self.logger.info(f"   • Predições: {self.performance['ai_predictions']}")
-            if ML_AVAILABLE:
-                self.logger.info(f"   • Modelo Accuracy: {self.analyzer.ml_predictor.model_accuracy:.3f}")
-                self.logger.info(f"   • Amostras de Treino: {len(self.analyzer.ml_predictor.training_data)}")
-            self.logger.info(f"   • Padrões Aprendidos: {len(self.analyzer.pattern_matcher.patterns)}")
-            
-            # Salvar modelo final
-            if ML_AVAILABLE and self.analyzer.ml_predictor.model is not None:
-                self.analyzer.ml_predictor.save_model()
-                self.logger.info("💾 Modelo de IA salvo")
-            
-            self.performance["current_balance"] = final_balance
-            self.performance["last_update"] = datetime.now().isoformat()
-            
-        except Exception as e:
-            self.logger.error(f"Erro no encerramento: {e}", exc_info=True)
-    
-    def stop(self):
-        """Para o bot"""
-        self.running = False
-        self.logger.info("🛑 Sinal de parada recebido")
-
-# ============================================================================
-# ⚙️ BACKTESTING INTEGRADO
-# ============================================================================
-
-class Backtester:
-    """
-    Ferramenta de Backtesting para simular o desempenho do bot com dados históricos.
-    Este é um esqueleto. A implementação completa exigiria:
-    1. Carregamento eficiente de dados históricos (possivelmente de um banco de dados local).
-    2. Simulação detalhada de ordens (slippage, taxas).
-    3. Gerenciamento de estado do bot ao longo do tempo (posições, saldo).
-    4. Geração de relatórios de métricas de performance (drawdown, Sharpe ratio, etc.).
-    """
-    
-    def __init__(self, environment: str = 'testnet'):
-        self.environment = environment
-        # Initialize the bot in a 'simulate_backtest' environment to trigger yfinance and mock API calls
-        self.bot = AIEnhancedTradingBot(environment='simulate_backtest') 
-        self.logger = logging.getLogger('Backtester')
-        self.logger.info(f"🔄 Backtester inicializado para ambiente: {environment.upper()}")
-        
-        # Override bot's real API calls with simulation mocks
-        self.bot.get_current_price = self._get_historical_price
-        self.bot.place_market_order = self._simulate_order_execution
-        self.bot.get_account_balance = self._get_simulated_balance
-        # self.bot.update_data_cache is now designed to handle yfinance or real API
-        
-        self.historical_data_frames = {} # Store fetched yfinance data
-        self.simulated_balance = 0.0 # Initial capital for backtest
-        self.simulated_positions = []
-        self.current_simulation_time = None # Will track the current time in backtest
-        self.trade_logs = [] # To store simulated trades
-        
-    def _load_initial_historical_data(self, start_date: datetime, end_date: datetime, symbols: List[str], interval: str = '5m'):
-        """Loads all necessary historical data for the backtest period using yfinance."""
-        self.logger.info(f"Carregando dados históricos via YFinance para backtest ({start_date.date()} a {end_date.date()})...")
-        for symbol in symbols:
-            yf_symbol = _convert_gateio_symbol_to_yfinance(symbol)
-            
-            yf_interval = {'1m': '1m', '5m': '5m', '15m': '15m', '1h': '60m'}.get(interval, '5m') # Updated for 1m
-            
-            # Request period slightly larger to ensure enough data for indicators
-            # YFinance's 5m interval is typically limited to 7 days
-            period_str_map = {
-                '1m': '7d',
-                '5m': '7d',
-                '15m': '60d',
-                '60m': '2y'
-            }
-            period_str = period_str_map.get(yf_interval, '1mo')
-
-
-            try:
-                # Ajusta a data de início para buscar dados suficientes para os indicadores
-                # Por exemplo, se a maior janela de indicador é 50 e você quer testar 1m,
-                # precisa de pelo menos 50 minutos de dados antes do start_date real do backtest.
-                # Um buffer de 7 dias é seguro para a maioria dos timeframes.
-                buffer_days = 7 # Suficiente para os timeframes menores e cálculos
-                data_fetch_start = start_date - timedelta(days=buffer_days)
-
-                ticker = yf.Ticker(yf_symbol)
-                # Fetch data up to the end of the backtest period plus a small buffer
-                df = ticker.history(start=data_fetch_start, end=end_date + timedelta(days=1), interval=yf_interval, auto_adjust=True) # auto_adjust=True
+                if rows_before_dropna != rows_after_dropna:
+                    logger.warning(f"Dropped {rows_before_dropna - rows_after_dropna} rows due to NaN in 'Close' or 'Volume' for {symbol_pair}")
                 
                 if df.empty:
-                    self.logger.warning(f"Não foi possível carregar dados para {yf_symbol} de {data_fetch_start} a {end_date}. Pulando.")
-                    continue
+                    logger.error(f"❌ DataFrame is empty after cleaning for {symbol_pair}")
+                    return pd.DataFrame()
                 
-                df.columns = [col.title() for col in df.columns] # Ensure consistent column names (Open, High, Low, Close, Volume)
-                df.index.name = 'timestamp'
-                df = df[['Open', 'High', 'Low', 'Close', 'Volume']] # Select and order columns
+                logger.info(f"✅ Gate.io Futures OHLCV processed for {symbol_pair}: {len(df)} data points")
+                logger.debug(f"Price range: ${df['Close'].min():,.2f} - ${df['Close'].max():,.2f}")
+                logger.debug(f"Latest price: ${df['Close'].iloc[-1]:,.2f}")
                 
-                # Resample to ensure consistent intervals (YFinance might have gaps)
-                # This ensures we have a consistent index for the loop.
-                # Use df.asfreq() after resample to fill missing intervals with NaN
-                resampled_5m = df.resample('5min').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-                resampled_15m = df.resample('15min').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
-                resampled_1h = df.resample('1h').agg({'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'}).dropna()
+                return df
 
-                self.historical_data_frames[symbol] = {
-                    '5m': resampled_5m,
-                    '15m': resampled_15m,
-                    '1h': resampled_1h
-                }
-                self.logger.info(f"Dados carregados para {symbol} (5m: {len(self.historical_data_frames[symbol]['5m'])} candles)")
-                
-            except Exception as e:
-                self.logger.error(f"Erro ao carregar dados históricos para {yf_symbol} com YFinance: {e}", exc_info=True)
-        self.logger.info("Concluído o carregamento de dados históricos.")
+    except aiohttp.ClientTimeout:
+        logger.error(f"❌ Timeout fetching Gate.io Futures OHLCV for {symbol_pair}")
+        return pd.DataFrame()
+    except aiohttp.ClientError as e:
+        logger.error(f"❌ AIOHTTP client error fetching Gate.io Futures OHLCV for {symbol_pair}: {e}")
+        return pd.DataFrame()
+    except Exception as e:
+        logger.error(f"❌ General error fetching Gate.io Futures OHLCV for {symbol_pair}: {e}")
+        return pd.DataFrame()
 
+# ===============================================================================
+# 🔄 SISTEMA DE DETECÇÃO DE CRUZAMENTOS MACD (NOVO)
+# ===============================================================================
 
-    def _get_historical_price(self, symbol: str) -> float:
-        """Returns the closing price at the current simulation time."""
-        if symbol in self.bot.analyzer.data_cache and '5m' in self.bot.analyzer.data_cache[symbol] and not self.bot.analyzer.data_cache[symbol]['5m'].empty:
-            # Find the most recent candle data BEFORE or AT current_simulation_time
-            df = self.bot.analyzer.data_cache[symbol]['5m']
-            recent_candles = df[df.index <= self.current_simulation_time]
-            if not recent_candles.empty:
-                return recent_candles['Close'].iloc[-1] # Use 'Close' column
-        return 0.0
-
-    def _simulate_order_execution(self, symbol: str, side: str, contracts: float) -> Optional[dict]:
-        """Simulates the execution of a market order."""
-        price = self._get_historical_price(symbol)
-        if price == 0:
-            self.logger.error(f"Backtest: Preço inválido para {symbol} na simulação de ordem.")
-            return None
-        
-        simulated_order = {
-            "id": f"sim_order_{int(self.current_simulation_time.timestamp())}_{np.random.randint(1000,9999)}",
-            "contract": symbol,
-            "size": contracts if side == "buy" else -contracts,
-            "price": price,
-            "create_time": self.current_simulation_time.timestamp()
-        }
-        self.logger.info(f"Backtest: Simulating {side.upper()} order for {contracts} {symbol} @ ${price:.4f} at {self.current_simulation_time}")
-        
-        cost_usdt = contracts * price
-        # Adjust simulated balance
-        # For 'buy', capital is reduced (buying asset)
-        # For 'sell', capital is increased (selling asset, potentially opening short)
-        # For closing positions, the PnL is applied later in close_position_with_ai_feedback,
-        # so here we only simulate the initial capital allocation for opening a position.
-        
-        # When opening a short position, it's typically margin-based, not directly adding to balance.
-        # For simplicity in this backtest, we'll only adjust for opening buy positions,
-        # and PnL for both long/short will adjust balance upon closing.
-        if side == "buy":
-            self.simulated_balance -= cost_usdt # Simulate capital tied up (or used for buying)
-        
-        # Note: A real backtester would need more sophisticated margin and PnL tracking for futures.
-        # This current simplified approach directly manages balance for entry/exit.
-        
-        return simulated_order
-
-    def _get_simulated_balance(self) -> float:
-        """Returns the simulated balance."""
-        return self.simulated_balance
-
-    def run_backtest(self, start_date: datetime, end_date: datetime, initial_capital: float):
+class MACDCrossoverDetector:
+    """Detecta cruzamentos MACD em tempo real"""
+    
+    def __init__(self):
+        self.last_macd_signal = {}
+        self.crossover_history = deque(maxlen=50)
+    
+    def detect_crossover(self, asset: str, macd_current: float, signal_current: float, 
+                         macd_previous: float, signal_previous: float) -> Dict:
         """
-        Executa o backtest da estratégia.
-        Avança o tempo candle por candle para simular o ambiente real.
+        Detecta cruzamento de linhas MACD
+        Returns: {'type': 'bullish'/'bearish'/'none', 'strength': float, 'alert': Dict}
         """
-        self.logger.info(f"🚀 Iniciando Backtest de {start_date.date()} a {end_date.date()} com capital inicial ${initial_capital:.2f}")
-        self.simulated_balance = initial_capital
-        self.bot.performance["start_balance"] = initial_capital
-        self.bot.performance["current_balance"] = initial_capital
-        
-        # Reset bot's internal state for backtesting
-        self.bot.active_positions = []
-        self.bot.trade_history = []
-        self.bot.signals_history = []
-        self.bot.last_trade_time = {}
-        self.bot.daily_trades = 0
-        self.bot.daily_reset_date = start_date.date() # Start daily reset from backtest start date
-        self.bot.fred_last_checked_for_cooldown = None # Reset FRED cooldown for backtest
-
-        self.bot.performance["total_trades"] = 0
-        self.bot.performance["winning_trades"] = 0
-        self.bot.performance["total_pnl"] = 0.0
-        self.bot.performance["ai_predictions"] = 0
-        self.bot.performance["ai_correct_predictions"] = 0
-        
-        self.bot.analyzer.ml_predictor.training_data = [] # Reset ML training data for fresh start or re-load
-        self.bot.analyzer.ml_predictor.last_retrain = None
-        self.bot.analyzer.ml_predictor.load_model() # Attempt to load pre-trained model for backtest if available
-
-        # Load all necessary historical data at once
-        self._load_initial_historical_data(start_date, end_date, TRADING_SYMBOLS, '5m') # Using 5m as base interval
-
-        # Determine the earliest start time considering the feature window for indicators
-        # The earliest timestamp in our loaded data should cover the feature window before start_date
-        all_timestamps = []
-        for symbol in TRADING_SYMBOLS:
-            if symbol in self.historical_data_frames and '5m' in self.historical_data_frames[symbol]:
-                df_symbol = self.historical_data_frames[symbol]['5m']
-                # Filter timestamps to be within the actual backtest period
-                filtered_timestamps = df_symbol.index[(df_symbol.index >= start_date) & (df_symbol.index <= end_date)].tolist()
-                all_timestamps.extend(filtered_timestamps)
-        all_timestamps = sorted(list(set(all_timestamps))) # Get unique sorted timestamps across all symbols
-
-        if not all_timestamps:
-            self.logger.error("Data histórica insuficiente ou período inválido para o backtest. Verifique datas e disponibilidade de dados.")
-            return
-            
-        self.logger.info(f"Iniciando simulação candle a candle a partir de {all_timestamps[0]} até {all_timestamps[-1]}...")
-        
-        log_interval_steps = (len(all_timestamps) // 10) or 1 # Log progress 10 times
-
-        for i, current_timestamp in enumerate(all_timestamps):
-            self.current_simulation_time = current_timestamp
-            self.bot.performance["last_update"] = self.current_simulation_time.isoformat()
-
-            # Simulate data update for the current timestamp for all relevant timeframes
-            for symbol in TRADING_SYMBOLS:
-                if symbol in self.historical_data_frames:
-                    for tf, df_data in self.historical_data_frames[symbol].items():
-                        # Get data up to the current simulation timestamp
-                        recent_df = df_data[df_data.index <= self.current_simulation_time].tail(max(AI_CONFIG['feature_window'] + 50, 200)) # Ensure enough for indicators + talib
-                        if not recent_df.empty:
-                            if symbol not in self.bot.analyzer.data_cache:
-                                self.bot.analyzer.data_cache[symbol] = {}
-                            self.bot.analyzer.data_cache[symbol][tf] = recent_df
-                            self.bot.analyzer.last_cache_update[f"{symbol}_{tf}"] = self.current_simulation_time
-            
-            # === Backtest FRED integration ===
-            # Override datetime.now() for FRED calendar to match simulation time
-            self.bot.analyzer.fred_calendar.datetime_now_override = self.current_simulation_time
-            
-            # Manually trigger FRED cache update for backtesting
-            self.bot.analyzer._update_fred_events_cache()
-
-
-            # 2. Manage simulated positions (check for SL/TP, close if hit)
-            self.bot.manage_positions()
-
-            # 3. Scan for new signals
-            self.bot.scan_markets_with_ai()
-            
-            # 4. Simulate retraining (less frequent than every candle)
-            if ML_AVAILABLE and self.bot.performance["total_trades"] >= AI_CONFIG['min_training_samples'] and \
-               (self.bot.analyzer.ml_predictor.last_retrain is None or \
-               (self.current_simulation_time - self.bot.analyzer.ml_predictor.last_retrain).total_seconds() / 3600 >= AI_CONFIG['model_retrain_interval_hours']):
-                self.logger.info(f"Backtest: Retraining model at {self.current_simulation_time}...")
-                self.bot.analyzer.ml_predictor.train_model()
-
-            # Periodically log status during backtest
-            if (i % log_interval_steps == 0 and i > 0) or (i == len(all_timestamps) - 1):
-                self.logger.info(f"Backtest Progress: {self.current_simulation_time.strftime('%Y-%m-%d %H:%M')}")
-                self.bot.log_ai_periodic_status() 
-        
-        self.logger.info("✅ Backtest concluído!")
-        self._generate_backtest_report()
-
-    def _generate_backtest_report(self):
-        """Gera um relatório de performance detalhado do backtest."""
-        self.logger.info("=" * 70)
-        self.logger.info("📊 RELATÓRIO DE BACKTEST")
-        self.logger.info("=" * 70)
-        
-        # Recalculate final balance based on initial capital and total PnL from trade_history
-        final_balance = self.bot.performance["start_balance"] + self.bot.performance["total_pnl"]
-        
-        self.logger.info(f"Capital Inicial: ${self.bot.performance['start_balance']:.2f}")
-        self.logger.info(f"Capital Final: ${final_balance:.2f}")
-        self.logger.info(f"PnL Total: ${self.bot.performance['total_pnl']:.2f}")
-        self.logger.info(f"ROI: {self.bot.performance['roi_percentage']:.2f}%")
-        self.logger.info(f"Total de Trades: {self.bot.performance['total_trades']}")
-        self.logger.info(f"Trades Vencedores: {self.bot.performance['winning_trades']}")
-        self.logger.info(f"Taxa de Vitória: {self.bot.performance['win_rate']:.2f}%")
-        
-        self.logger.info(f"Acurácia da IA (Trades no Backtest): {self.bot.performance['ai_accuracy']:.2f}%")
-        
-        if ML_AVAILABLE:
-            self.logger.info(f"Acurácia do Modelo ML Treinado: {self.bot.analyzer.ml_predictor.model_accuracy:.3f}")
-            self.logger.info(f"Amostras de Treino Utilizadas: {len(self.bot.analyzer.ml_predictor.training_data)}")
-
-        self.logger.info("=" * 70)
-
-# ============================================================================
-# 🚀 WRAPPER PARA INTEGRAÇÃO
-# ============================================================================
-
-class CombinedAITradingBot(AIEnhancedTradingBot):
-    """Wrapper para compatibilidade com FastAPI"""
-    
-    def __init__(self, environment: str = 'testnet'):
-        super().__init__(environment=environment)
-        self.logger.info(f"🤖 CombinedAITradingBot v2.1 inicializado - Ambiente: {self.environment.upper()}")
-        
-        # Validar credenciais
-        if not API_KEY or not SECRET:
-            self.logger.error("❌ Credenciais API da Gate.io não configuradas!")
-        
-        self.logger.info(f"🔑 API Gate.io configurada: {'...' + API_KEY[-5:] if API_KEY else 'N/A'}")
-        
-        if not NEWS_API_KEY and SENTIMENT_AVAILABLE:
-            self.logger.warning("⚠️ NEWS_API_KEY não configurada. A análise de sentimento usará dados simulados ou limitados.")
-        elif NEWS_API_KEY and SENTIMENT_AVAILABLE:
-            self.logger.info("✅ NEWS_API_KEY configurada. Análise de sentimento real ativada.")
-
-        # Testar conectividade apenas se não for simulação
-        if environment not in ['simulate_backtest']: 
-            try:
-                balance = self.get_account_balance()
-                self.logger.info(f"✅ Conectividade Gate.io testada - Saldo: ${balance:.2f}")
-            except Exception as e:
-                self.logger.error(f"❌ Falha no teste de conectividade Gate.io: {e}")
-    
-    def run_trading_loop(self):
-        """Método para execução em thread separada"""
         try:
-            self.run()
-        except Exception as e:
-            self.logger.error(f"Erro na thread de trading: {e}", exc_info=True)
-    
-    def get_detailed_ai_status(self) -> Dict:
-        """Status detalhado com métricas de IA, incluindo performance por ambiente."""
-        try:
-            # ATUALIZAÇÃO IMPORTANTE: Chame get_account_balance() para atualizar self.performance["current_balance"]
-            # E também para garantir que start_balance seja definido na primeira chamada.
-            current_balance = self.get_account_balance() 
+            crossover_type = "none"
             
-            # Recalculate metrics based on current performance state
-            # (These are updated when trades are closed in close_position_with_ai_feedback)
-            if self.performance["start_balance"] > 0:
-                self.performance["roi_percentage"] = (self.performance["total_pnl"] / self.performance["start_balance"]) * 100
+            if macd_previous <= signal_previous and macd_current > signal_current:
+                crossover_type = "bullish"
             
-            if self.performance["total_trades"] > 0:
-                self.performance["win_rate"] = (self.performance["winning_trades"] / self.performance["total_trades"]) * 100
+            elif macd_previous >= signal_previous and macd_current < signal_current:
+                crossover_type = "bearish"
             
-            if self.performance["ai_predictions"] > 0:
-                self.performance["ai_accuracy"] = (self.performance["ai_correct_predictions"] / self.performance["ai_predictions"]) * 100
+            if crossover_type != "none":
+                strength = abs(macd_current - signal_current)
+                strength_normalized = min(strength * 10, 1.0)
 
-            # Garanta que o performance.last_update seja atualizado
-            self.performance["last_update"] = datetime.now().isoformat()
-
-            # Popula as métricas de performance para o ambiente ATIVO.
-            # Os outros ambientes terão valores padrão de 0/N/A.
-            testnet_perf_data = {
-                "balance": 0.0,
-                "total_pnl": 0.0,
-                "roi_percentage": 0.0,
-                "win_rate": 0.0,
-                "total_trades": 0,
-                "winning_trades": 0,
-                "daily_pnl": 0.0,
-                "daily_trades": 0
-            }
-            live_perf_data = {
-                "balance": 0.0,
-                "total_pnl": 0.0,
-                "roi_percentage": 0.0,
-                "win_rate": 0.0,
-                "total_trades": 0,
-                "winning_trades": 0,
-                "daily_pnl": 0.0,
-                "daily_trades": 0
-            }
-            
-            # Atribui os dados globais de performance ao ambiente correto
-            if self.environment == "testnet":
-                testnet_perf_data = {
-                    "balance": round(current_balance, 2),
-                    "total_pnl": round(self.performance["total_pnl"], 2),
-                    "roi_percentage": round(self.performance["roi_percentage"], 2),
-                    "win_rate": round(self.performance["win_rate"], 2),
-                    "total_trades": self.performance["total_trades"],
-                    "winning_trades": self.performance["winning_trades"],
-                    "daily_pnl": round(self.performance["daily_pnl"], 2),
-                    "daily_trades": self.performance["daily_trades"]
+                alert = {
+                    "type": "MACD_CROSSOVER",
+                    "asset": asset.upper(),
+                    "crossover_type": crossover_type,
+                    "strength": round(strength_normalized, 3),
+                    "macd_value": round(macd_current, 4),
+                    "signal_value": round(signal_current, 4),
+                    "divergence": round(strength, 4),
+                    "timestamp": datetime.now().isoformat(),
+                    "title": f"🎯 MACD {crossover_type.upper()} Crossover - {asset.upper()}",
+                    "message": f"MACD line crossed {'above' if crossover_type == 'bullish' else 'below'} Signal line for {asset.upper()}",
+                    "severity": "HIGH" if strength_normalized > 0.5 else "MEDIUM",
+                    "trading_signal": "BUY" if crossover_type == "bullish" else "SELL",
+                    "confidence": round(strength_normalized * 100, 1)
                 }
-            elif self.environment == "live":
-                live_perf_data = {
-                    "balance": round(current_balance, 2),
-                    "total_pnl": round(self.performance["total_pnl"], 2),
-                    "roi_percentage": round(self.performance["roi_percentage"], 2),
-                    "win_rate": round(self.performance["win_rate"], 2),
-                    "total_trades": self.performance["total_trades"],
-                    "winning_trades": self.performance["winning_trades"],
-                    "daily_pnl": round(self.performance["daily_pnl"], 2),
-                    "daily_trades": self.performance["daily_trades"]
+                
+                self.crossover_history.append(alert)
+                
+                cache["alerts"].append(alert)
+                
+                logger.info(f"🎯 MACD {crossover_type.upper()} crossover detected for {asset}: strength {strength_normalized:.3f}")
+                
+                return {
+                    "type": crossover_type,
+                    "strength": strength_normalized,
+                    "alert": alert
                 }
-
-
-            simple_active_positions = []
-            for pos in self.active_positions:
-                try:
-                    simple_active_positions.append({
-                        'symbol': pos['symbol'],
-                        'side': pos['side'],
-                        'size': pos['size'],
-                        'entry_price': round(pos['entry_price'], 4),
-                        'current_price': round(pos.get('current_price', 0.0), 4),
-                        'pnl': round(pos.get('pnl', 0.0), 2),
-                        'pnl_percent': round(pos.get('pnl_percent', 0.0), 2),
-                        'duration_minutes': (datetime.now() - pos.get('timestamp', datetime.now())).total_seconds() / 60,
-                        'ai_prediction': round(pos.get('ai_prediction', 0.5), 3),
-                        'pattern_score': round(pos.get('pattern_score', 0.5), 3),
-                        'sentiment_score': round(pos.get('sentiment_score', 0.5), 3),
-                        'timestamp': pos.get('timestamp').isoformat() if pos.get('timestamp') else None
-                    })
-                except Exception as e:
-                    self.logger.error(f"Erro ao formatar posição: {e}")
-                    continue
             
-            return {
-                "status": "running" if self.running else "stopped",
-                "environment": self.environment, # Ambiente que o bot está configurado para operar
-                "version": "2.1_ai_enhanced",
-                
-                # Performance Principal (global, se o bot não separa por ambiente internamente)
-                "current_balance": round(current_balance, 2),
-                "start_balance": round(self.performance["start_balance"], 2),
-                "total_pnl": round(self.performance["total_pnl"], 2),
-                "roi_percentage": round(self.performance["roi_percentage"], 2),
-                "winning_trades": self.performance["winning_trades"],
-                "total_trades": self.performance["total_trades"],
-                "win_rate": round(self.performance["win_rate"], 2),
-                "daily_pnl": round(self.performance["daily_pnl"], 2),
-                "daily_trades": self.performance["daily_trades"],
-                
-                # Performance separada por ambiente para o frontend
-                "testnet_performance": testnet_perf_data, 
-                "live_performance": live_perf_data,     
-
-                # Métricas de IA
-                "ai_accuracy": round(self.performance["ai_accuracy"], 2),
-                "ai_predictions": self.performance["ai_predictions"],
-                "ai_correct_predictions": self.performance["ai_correct_predictions"],
-                "ml_model_accuracy": round(self.analyzer.ml_predictor.model_accuracy, 3) if ML_AVAILABLE and self.analyzer.ml_predictor.model_accuracy else 0,
-                "training_samples": len(self.analyzer.ml_predictor.training_data),
-                
-                # Timestamps
-                "last_update": self.performance["last_update"] or datetime.now().isoformat(),
-                "session_start_time": self.performance["session_start_time"],
-                
-                # Posições com dados de IA
-                "active_positions_count": len(self.active_positions),
-                "active_positions": simple_active_positions,
-                
-                # Histórico
-                "recent_signals_count": len(self.signals_history),
-                "recent_signals": [s.to_dict() for s in self.signals_history[-10:]],
-                "trade_history_count": len(self.trade_history),
-                "trade_history": self.trade_history[-20:], 
-                
-                # Configurações
-                "config": {
-                    "ai_prediction_threshold": AI_CONFIG['prediction_threshold'],
-                    "model_retrain_interval_hours": AI_CONFIG['model_retrain_interval_hours'],
-                    "pattern_memory_size": AI_CONFIG['pattern_memory_size'],
-                    "sentiment_weight": AI_CONFIG['sentiment_weight'],
-                    "position_size_usdt": RISK_CONFIG[self.environment]['position_size_usdt'],
-                    "max_open_positions": RISK_CONFIG[self.environment]['max_open_positions'],
-                    "ai_confidence_boost": RISK_CONFIG[self.environment]['ai_confidence_boost']
-                },
-                
-                # Status dos Componentes de IA
-                "ai_system_status": {
-                    "ml_available": ML_AVAILABLE,
-                    "xgb_available": XGB_AVAILABLE,
-                    "sentiment_available": SENTIMENT_AVAILABLE,
-                    "talib_available": TALIB_AVAILABLE,
-                    "model_trained": self.analyzer.ml_predictor.model is not None,
-                    "last_retrain": self.analyzer.ml_predictor.last_retrain.isoformat() if self.analyzer.ml_predictor.last_retrain else None,
-                    "pattern_database_size": len(self.analyzer.pattern_matcher.patterns),
-                    "sentiment_cache_size": len(self.analyzer.sentiment_analyzer.sentiment_cache),
-                    "fred_calendar_active": (FRED_API_KEY is not None and FRED_API_KEY != "DUMMY_KEY_FRED"),
-                    "fred_events_cached": len(self.analyzer.fred_events_cache),
-                    "fred_last_update": self.analyzer.last_fred_update.isoformat() if self.analyzer.last_fred_update else None,
-                    "cryptopanic_active": (CRYPTOPANIC_API_KEY is not None and CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC")
-                },
-                
-                # Features da versão IA
-                "ai_features": {
-                    "machine_learning": ML_AVAILABLE,
-                    "pattern_matching": True,
-                    "sentiment_analysis": SENTIMENT_AVAILABLE,
-                    "xgboost_available": XGB_AVAILABLE,
-                    "automatic_retraining": True,
-                    "feature_engineering": True,
-                    "multi_model_ensemble": True,
-                    "kelly_criterion_sizing": True,
-                    "fred_economic_calendar_integration": True,
-                    "cryptopanic_news_integration": True,
-                    "talib_advanced_analysis": TALIB_AVAILABLE
-                }
-            }
+            return {"type": "none", "strength": 0, "alert": None}
             
         except Exception as e:
-            self.logger.error(f"Erro ao gerar relatório de IA: {e}", exc_info=True)
-            return {"error": f"Erro no relatório: {str(e)}"}
+            logger.error(f"Error in MACD crossover detection: {e}")
+            return {"type": "none", "strength": 0, "alert": None}
     
-    def force_model_retrain(self) -> bool:
-        """Força retreinamento do modelo"""
-        if not ML_AVAILABLE:
-            self.logger.warning("Machine Learning não disponível. Não é possível forçar retreinamento.")
-            return False
-        try:
-            self.logger.info("🔄 Forçando retreinamento do modelo...")
-            return self.analyzer.ml_predictor.train_model()
-        except Exception as e:
-            self.logger.error(f"Erro ao forçar retreinamento: {e}")
-            return False
+    def get_recent_crossovers(self, limit: int = 10) -> List[Dict]:
+        """Retorna cruzamentos recentes"""
+        return list(self.crossover_history)[-limit:]
 
-# ============================================================================
-# 🚀 EXECUÇÃO PRINCIPAL
-# ============================================================================
+macd_detector = MACDCrossoverDetector()
 
-if __name__ == "__main__":
-    import argparse
-    import sys
-    
-    # Banner do bot
-    print("=" * 80)
-    print("🤖 BOT DE TRADING COM IA LEVE v2.1")
-    print("🧠 Machine Learning + Análise de Sentimento + Padrões Históricos")
-    print("✨ Melhorias: Mais Indicadores, Gerenciamento de Risco Kelly, Backtesting (Esqueleto)")
-    print("🆕 Novidade: Análise TALIB Avançada Multi-Timeframe")
-    print("=" * 80)
-    
-    parser = argparse.ArgumentParser(description='Bot de Trading com IA v2.1')
-    parser.add_argument('--env', choices=['testnet', 'live'], default='testnet',
-                        help='Ambiente de execução (testnet ou live)')
-    parser.add_argument('--train-only', action='store_true',
-                        help='Apenas treinar modelo sem fazer trades')
-    parser.add_argument('--force-retrain', action='store_true',
-                        help='Forçar retreinamento do modelo existente')
-    parser.add_argument('--backtest', action='store_true',
-                        help='Rodar backtesting em vez de live trading')
-    parser.add_argument('--backtest-start', type=str,
-                        help='Data de início para backtesting (YYYY-MM-DD)')
-    parser.add_argument('--backtest-end', type=str,
-                        help='Data de fim para backtesting (YYYY-MM-DD)')
-    parser.add_argument('--backtest-capital', type=float, default=1000.0,
-                        help='Capital inicial para backtesting')
-    parser.add_argument('--debug', action='store_true',
-                        help='Modo debug com logs detalhados')
-    
-    args = parser.parse_args()
-    
-    # Configurar nível de log
-    if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
-        print("🔍 Modo DEBUG ativado")
-    
-    # Verificar dependências críticas
-    print("\n🔍 Verificando dependências...")
-    
-    missing_deps = []
-    if not ML_AVAILABLE:
-        missing_deps.append("scikit-learn")
-    if not XGB_AVAILABLE:
-        missing_deps.append("xgboost")
-    if not SENTIMENT_AVAILABLE:
-        missing_deps.append("textblob")
-    if not YFINANCE_AVAILABLE:
-        missing_deps.append("yfinance")
-    if not TALIB_AVAILABLE:
-        missing_deps.append("talib (TA-Lib C library first)")
-    
-    if missing_deps:
-        print(f"⚠️ ATENÇÃO: Dependências opcionais não disponíveis: {', '.join(missing_deps)}")
-        print("📦 Para funcionalidade completa, instale:")
-        print(f"    pip install {' '.join([d for d in missing_deps if not 'TA-Lib' in d])}")
-        if 'talib (TA-Lib C library first)' in missing_deps:
-            print("    Para TA-Lib, siga as instruções de instalação da biblioteca C primeiro, depois pip install talib-python.")
-        
-        if not ML_AVAILABLE:
-            print("❌ ERRO: Machine Learning é obrigatório para esta versão!")
-            print("💡 Instale com: pip install scikit-learn joblib numpy pandas")
-            sys.exit(1)
-        
-        print("⚡ Continuando com funcionalidades limitadas...\n")
-    else:
-        print("✅ Todas as dependências estão disponíveis\n")
-    
-    # Verificar credenciais Gate.io apenas se não for backtest
-    if not args.backtest:
-        if not API_KEY or not SECRET:
-            print("❌ ERRO: Credenciais da API da Gate.io não configuradas!")
-            print("📝 Configure no arquivo .env:")
-            print("    GATE_TESTNET_API_KEY=sua_key")
-            print("    GATE_TESTNET_API_SECRET=seu_secret")
-            sys.exit(1)
-        
-        print(f"🔑 Credenciais Gate.io configuradas: ...{API_KEY[-5:] if API_KEY else 'N/A'}")
-    else:
-        print("💡 Modo Backtest: Credenciais da API da Gate.io não são estritamente necessárias para a simulação.")
-
-    # Verificar credenciais NewsAPI
-    if SENTIMENT_AVAILABLE:
-        if not NEWS_API_KEY:
-            print("⚠️ ATENÇÃO: NEWS_API_KEY não configurada. A análise de sentimento usará dados simulados ou limitados.")
-            print("📝 Para análise de sentimento real, adicione no arquivo .env:")
-            print("    NEWS_API_KEY=sua_key_newsapi")
-        else:
-            print(f"🔑 Credenciais NewsAPI configuradas: ...{NEWS_API_KEY[-5:]}")
-
-    # Verificar credenciais FRED API
-    if FRED_API_KEY == "DUMMY_KEY_FRED":
-        print("⚠️ ATENÇÃO: FRED_API_KEY não configurada. O calendário econômico do FRED não será funcional.")
-        print("📝 Para usar o FRED, adicione no arquivo config.py:")
-        print("    FRED_API_KEY='SUA_CHAVE_API_FRED_AQUI'")
-    else:
-        print(f"🔑 Credenciais FRED API configuradas: ...{FRED_API_KEY[-5:] if FRED_API_KEY else 'N/A'}")
-
-    # Verificar credenciais CryptoPanic API
-    if CRYPTOPANIC_API_KEY == "DUMMY_KEY_CRYPTOPANIC":
-        print("⚠️ ATENÇÃO: CRYPTOPANIC_API_KEY não configurada. A análise de sentimento da CryptoPanic não será funcional.")
-        print("📝 Para usar a CryptoPanic, adicione no arquivo config.py:")
-        print("    CRYPTOPANIC_API_KEY='SUA_CHAVE_API_CRYPTOPANIC_AQUI'")
-    else:
-        print(f"🔑 Credenciais CryptoPanic API configuradas: ...{CRYPTOPANIC_API_KEY[-5:] if CRYPTOPANIC_API_KEY else 'N/A'}")
-
-
-    # Aviso para ambiente live
-    if args.env == 'live' and not args.backtest:
-        print("\n" + "🚨" * 30)
-        print("⚠️  ATENÇÃO: MODO LIVE SELECIONADO!")
-        print("💰 Este bot irá operar com DINHEIRO REAL!")
-        print("🚨" * 30)
-        
-        confirm = input("\nDigite 'CONFIRMO' para continuar com dinheiro real: ")
-        if confirm != 'CONFIRMO':
-            print("❌ Operação cancelada pelo usuário")
-            sys.exit(0)
-        
-        print("💰 MODO LIVE CONFIRMADO - Iniciando em 5 segundos...")
-        time.sleep(5)
-    
-    bot = None # Initialize bot to None
-    backtester = None # Initialize backtester to None
+# ===============================================================================
+# 📊 PROCESSADOR DE DADOS TEMPO REAL (NOVO)
+# ===============================================================================
+def calculate_trend_angle_indicator(values: List[float], time_window: int = 5) -> Dict:
+    """Calcula o ângulo de tendência para uma série de valores de indicador."""
+    if len(values) < time_window:
+        return {"angle": 0, "strength": 0}
 
     try:
-        if args.backtest:
-            if not args.backtest_start or not args.backtest_end:
-                print("❌ ERRO: Para backtesting, --backtest-start e --backtest-end são obrigatórios (YYYY-MM-DD).")
-                sys.exit(1)
-            
-            try:
-                start_date = datetime.strptime(args.backtest_start, '%Y-%m-%d')
-                end_date = datetime.strptime(args.backtest_end, '%Y-%m-%d').replace(hour=23, minute=59, second=59) # End of day
-            except ValueError:
-                print("❌ ERRO: Formato de data inválido. Use%Y-%m-%d.")
-                sys.exit(1)
-            
-            print(f"\n🎮 Inicializando Backtester para o período: {start_date.date()} a {end_date.date()}")
-            backtester = Backtester(environment=args.env) # Pass original env, Backtester will set its internal bot env to simulate_backtest
-            backtester.run_backtest(start_date, end_date, args.backtest_capital)
+        recent_values = values[-time_window:]
+        x = np.arange(len(recent_values))
+        
+        # Garante que não há valores NaN, que causariam erro na regressão
+        valid_indices = ~np.isnan(recent_values)
+        if not np.any(valid_indices): # Se todos forem NaN
+            return {"angle": 0, "strength": 0}
+        
+        recent_values_clean = np.array(recent_values)[valid_indices]
+        x_clean = x[valid_indices]
 
-        # Modo apenas treinamento
-        elif args.train_only:
-            print("🧠 Modo treinamento apenas...")
-            bot = CombinedAITradingBot(environment=args.env)
+        if len(x_clean) < 2: # Mínimo de 2 pontos para regressão
+            return {"angle": 0, "strength": 0}
 
-            # Ensure ML predictor has analyzer reference before attempting to train
-            bot.analyzer.ml_predictor.analyzer = bot.analyzer
-            
-            # Forçar uma atualização do cache para ter dados para feature extraction,
-            # especialmente se o treinamento estiver sendo feito a partir de um estado limpo.
-            # Em um cenário de 'train-only', o ideal seria carregar dados históricos para o treinamento.
-            # Aqui, apenas garantimos que o cache esteja preenchido minimamente.
-            bot.update_data_cache()
+        slope, _, r_value, _, _ = stats.linregress(x_clean, recent_values_clean)
+        angle = math.degrees(math.atan(slope))
+        strength = r_value ** 2 # R-quadrado como força
+
+        return {
+            "angle": round(angle, 2),
+            "strength": round(strength, 3)
+        }
+    except Exception as e:
+        logger.warning(f"Erro ao calcular ângulo do indicador: {e}")
+        return {"angle": 0, "strength": 0}
+
+def update_realtime_macd(asset: str, new_candle: Dict):
+    """
+    Atualiza MACD, RSI, STOCHRSI e suas inclinações em tempo real com novo candle
+    """
+    try:
+        # Garante que o asset existe no cache, inicializando se necessário
+        if asset not in realtime_ohlcv_cache:
+            logger.warning(f"Ativo {asset} não encontrado no cache OHLCV. Inicializando com defaults.")
+            realtime_ohlcv_cache[asset] = {
+                "candles": deque(maxlen=200),
+                "current_candle": None,
+                "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []},
+                "rsi_data": {"rsi": [], "last_value": 0.0, "angle": 0.0, "strength": 0.0, "trend": "NEUTRAL"},
+                "macd_angle_data": {"macd_angle": 0.0, "macd_angle_strength": 0.0, "signal_angle": 0.0, "signal_angle_strength": 0.0},
+                "stochrsi_data": {"k_value": 0.0, "d_value": 0.0, "k_series": [], "d_series": []}, # NOVO
+                "last_update": None,
+                "websocket_connected": False
+            }
 
 
-            if len(bot.analyzer.ml_predictor.training_data) < AI_CONFIG['min_training_samples']:
-                print(f"❌ Dados insuficientes para treinar: {len(bot.analyzer.ml_predictor.training_data)}")
-                print(f"📊 Necessário pelo menos: {AI_CONFIG['min_training_samples']} amostras")
-                print("💡 Execute o bot normal primeiro para coletar dados")
-                sys.exit(1)
+        realtime_ohlcv_cache[asset]["candles"].append(new_candle)
+        realtime_ohlcv_cache[asset]["current_candle"] = new_candle
+        realtime_ohlcv_cache[asset]["last_update"] = datetime.now().isoformat()
+
+        candles = list(realtime_ohlcv_cache[asset]["candles"])
+        # Garante que os preços são numéricos e remove NaNs
+        close_prices_raw = np.array([float(c["close"]) for c in candles])
+        # Apenas use dados não-NaN para talib.
+        close_prices = close_prices_raw[~np.isnan(close_prices_raw)].astype(np.float64)
+        
+        # --- Cálculo do MACD ---
+        macd_clean = []
+        signal_clean = []
+        hist_clean = []
+        
+        if len(close_prices) >= 34: # MACD requires at least 34 periods
+            macd, macd_signal, macd_hist = talib.MACD(
+                close_prices,
+                fastperiod=12,
+                slowperiod=26,  
+                signalperiod=9
+            )
             
-            success = bot.analyzer.ml_predictor.train_model()
-            if success:
-                print("✅ Treinamento concluído com sucesso!")
-                print(f"📊 Accuracy: {bot.analyzer.ml_predictor.model_accuracy:.3f}")
-                print(f"📈 Amostras de treino: {len(bot.analyzer.ml_predictor.training_data)}")
-                bot.analyzer.ml_predictor.save_model()
-                print("💾 Modelo salvo")
-            else:
-                print("❌ Falha no treinamento")
-                sys.exit(1)
+            macd_clean = np.nan_to_num(macd).tolist()
+            signal_clean = np.nan_to_num(macd_signal).tolist()
+            hist_clean = np.nan_to_num(macd_hist).tolist()
             
-        # Forçar retreinamento
-        elif args.force_retrain:
-            print("🔄 Forçando retreinamento do modelo...")
-            bot = CombinedAITradingBot(environment=args.env)
-            # Ensure ML predictor has analyzer reference before attempting to train
-            bot.analyzer.ml_predictor.analyzer = bot.analyzer
-            bot.update_data_cache() # Ensure data is available for feature extraction during retraining
-            success = bot.force_model_retrain()
-            if success:
-                print("✅ Retreinamento concluído!")
-            else:
-                print("❌ Falha no retreinamento")
-                sys.exit(1)
+            realtime_ohlcv_cache[asset]["macd_data"].update({
+                "macd": macd_clean,
+                "signal": signal_clean,
+                "histogram": hist_clean,
+                "last_update": datetime.now().isoformat()
+            })
             
-        # Modo normal de trading
+            if len(macd_clean) >= 2 and len(signal_clean) >= 2:
+                crossover = macd_detector.detect_crossover(
+                    asset=asset,
+                    macd_current=macd_clean[-1],
+                    signal_current=signal_clean[-1],  
+                    macd_previous=macd_clean[-2],
+                    signal_previous=signal_clean[-2]
+                )
+                if crossover["type"] != "none":
+                    realtime_ohlcv_cache[asset]["macd_data"]["last_crossover"] = crossover
+            
+            # Calcular ângulos do MACD
+            if len(macd_clean) >= 5 and len(signal_clean) >= 5: # Mínimo 5 pontos para calcular ângulo
+                macd_angle_info = calculate_trend_angle_indicator(macd_clean)
+                signal_angle_info = calculate_trend_angle_indicator(signal_clean)
+                realtime_ohlcv_cache[asset]["macd_angle_data"].update({
+                    "macd_angle": macd_angle_info["angle"],
+                    "macd_angle_strength": macd_angle_info["strength"],
+                    "signal_angle": signal_angle_info["angle"],
+                    "signal_angle_strength": signal_angle_info["strength"],
+                })
+            else: # Se não há dados suficientes, resetar ângulos
+                realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
+            
+        else: # Se não há candles suficientes para MACD, resetar tudo
+            logger.debug(f"Insufficient candles for MACD for {asset} ({len(close_prices)}/34)")
+            realtime_ohlcv_cache[asset]["macd_data"] = {"macd": [], "signal": [], "histogram": [], "last_crossover": None}
+            realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
+
+
+        # --- Cálculo do RSI ---
+        rsi_clean = []
+        if len(close_prices) >= 14: # RSI requires at least 14 periods
+            rsi_values = talib.RSI(close_prices, timeperiod=14)
+            rsi_clean = np.nan_to_num(rsi_values).tolist()
+            last_rsi_value = rsi_clean[-1] if rsi_clean else 0.0
+
+            rsi_angle_info = calculate_trend_angle_indicator(rsi_clean)
+            
+            rsi_trend = "NEUTRAL"
+            if rsi_angle_info["angle"] > 10 and rsi_angle_info["strength"] > 0.4:
+                rsi_trend = "RISING"
+            elif rsi_angle_info["angle"] < -10 and rsi_angle_info["strength"] > 0.4:
+                rsi_trend = "FALLING"
+
+            realtime_ohlcv_cache[asset]["rsi_data"].update({
+                "rsi": rsi_clean,
+                "last_value": round(last_rsi_value, 2),
+                "angle": rsi_angle_info["angle"],
+                "strength": rsi_angle_info["strength"],
+                "trend": rsi_trend,
+                "last_update": datetime.now().isoformat()
+            })
+        else: # Se não há candles suficientes para RSI, resetar
+            logger.debug(f"Insufficient candles for RSI for {asset} ({len(close_prices)}/14)")
+            realtime_ohlcv_cache[asset]["rsi_data"] = {"rsi": [], "last_value": 0.0, "angle": 0, "strength": 0, "trend": "NEUTRAL"}
+            
+        # --- Cálculo do STOCHRSI (NOVO) ---
+        stochrsi_k_clean = []
+        stochrsi_d_clean = []
+        # STOCHRSI (14,3,3) precisa de 14 para RSI, 3 para %K. Total 14 + (3-1) = 16 para o primeiro %K real.
+        # Talib calcula internamente. Uma regra segura é len >= 14 + fastk_period + signal_period (se houver) ou 34 para valores MACD
+        if len(close_prices) >= 17: # STOCHRSI (14,3,3) precisa de no mínimo 17 candles
+            fastk, fastd = talib.STOCHRSI(
+                close_prices,
+                timeperiod=14,
+                fastk_period=3,
+                fastd_period=3,
+                fastd_matype=0 # SMA
+            )
+            stochrsi_k_clean = np.nan_to_num(fastk).tolist()
+            stochrsi_d_clean = np.nan_to_num(fastd).tolist()
+
+            realtime_ohlcv_cache[asset]["stochrsi_data"].update({
+                "k_value": round(stochrsi_k_clean[-1], 2) if stochrsi_k_clean else 0.0,
+                "d_value": round(stochrsi_d_clean[-1], 2) if stochrsi_d_clean else 0.0,
+                "k_series": stochrsi_k_clean,
+                "d_series": stochrsi_d_clean,
+                "last_update": datetime.now().isoformat()
+            })
         else:
-            print(f"\n🚀 Iniciando bot de trading com IA...")
-            print(f"🌍 Ambiente: {args.env.upper()}")
-            print(f"🧠 IA ativada: {'SIM' if ML_AVAILABLE else 'NÃO'}")
-            print(f"📚 TALIB ativado: {'SIM' if TALIB_AVAILABLE else 'NÃO'}")
-            print(f"⚙️ Configurações:")
-            print(f"    • Posições máx: {RISK_CONFIG[args.env]['max_open_positions']}")
-            print(f"    • Trades/dia máx: {RISK_CONFIG[args.env]['max_daily_trades']}")
-            print(f"    • Tamanho posição (Base): ${RISK_CONFIG[args.env]['position_size_usdt']}")
-            print(f"    • Threshold IA: {AI_CONFIG['prediction_threshold']}")
-            
-            print(f"\n⏰ Iniciando em 3 segundos...")
-            time.sleep(3)
-            
-            # Executar bot
-            bot = CombinedAITradingBot(environment=args.env)
-            bot.run()
-    
-    except KeyboardInterrupt:
-        print("\n🛑 Interrupção pelo usuário detectada")
+            logger.debug(f"Insufficient candles for STOCHRSI for {asset} ({len(close_prices)}/17)")
+            realtime_ohlcv_cache[asset]["stochrsi_data"] = {"k_value": 0, "d_value": 0, "k_series": [], "d_series": []}
+
+        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(macd_clean or [])} pts), RSI ({len(rsi_clean or [])} pts), STOCHRSI K/D ({len(stochrsi_k_clean or [])} pts)")
         
     except Exception as e:
-        print(f"\n❌ Erro crítico: {e}")
-        if args.debug:
-            import traceback
-            traceback.print_exc()
-        
-    finally:
+        logger.error(f"Error updating realtime indicators for {asset}: {e}", exc_info=True)
+
+# ===============================================================================
+# 🔌 WEBSOCKET PARA DADOS OHLCV TEMPO REAL (NOVO)
+# ===============================================================================
+
+async def fetch_realtime_ohlcv_gateio():
+    """
+    Conecta ao WebSocket da Gate.io para dados OHLCV em tempo real
+    para BTC_USDT e ETH_USDT.
+    """
+    logger.info("🔌 Starting Gate.io OHLCV WebSocket connection...")
+
+    currency_pairs_to_subscribe = [s for s in TRADING_SYMBOLS if s.endswith('_USDT')]
+
+    while True:
+        websocket = None
         try:
-            if bot is not None and bot.running: # Only shutdown if it was actively running
-                print("🔄 Encerrando bot de forma segura...")
-                bot.stop()
-                
-                # Exibir estatísticas finais
-                if bot.performance["total_trades"] > 0:
-                    print("\n📊 ESTATÍSTICAS FINAIS:")
-                    print(f"    💰 PnL Total: ${bot.performance['total_pnl']:.2f}")
-                    print(f"    📈 ROI: {bot.performance['roi_percentage']:.2f}%")
-                    print(f"    🎯 Win Rate: {bot.performance['win_rate']:.1f}%")
-                    print(f"    🤖 IA Accuracy: {bot.performance['ai_accuracy']:.1f}%")
-                    print(f"    📊 Trades Total: {bot.performance['total_trades']}")
-                
-                print("✅ Bot encerrado com segurança")
-            elif backtester is not None:
-                print("\n✅ Backtest finalizado.")
-                # The backtester already prints its report
-                
-        except Exception as shutdown_error:
-            print(f"⚠️ Erro no encerramento: {shutdown_error}")
+            ws_url = "wss://api.gateio.ws/ws/v4/"
             
-        print("\n👋 Obrigado por usar o Bot de Trading com IA!")
-        print("🔗 GitHub: https://github.com/seu-usuario/ai-trading-bot")
-        print("📧 Suporte: support@seudominio.com")
+            websocket = await websockets.connect(ws_url, ping_interval=30, ping_timeout=10)
+            logger.info("✅ Connected to Gate.io OHLCV WebSocket")
+            
+            for asset_pair in currency_pairs_to_subscribe:
+                asset_key_init = asset_pair.split('_')[0].lower()
+                if asset_key_init in realtime_ohlcv_cache:
+                    realtime_ohlcv_cache[asset_key_init]["websocket_connected"] = True
+                else:
+                    realtime_ohlcv_cache[asset_key_init] = {
+                        "candles": deque(maxlen=200),
+                        "current_candle": None,
+                        "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []},
+                        "last_update": None,
+                        "websocket_connected": True
+                    }
+
+            for pair in currency_pairs_to_subscribe:
+                subscribe_message = {
+                    "time": int(time.time()),
+                    "channel": "spot.candlesticks",
+                    "event": "subscribe",
+                    "payload": ["1m", pair]
+                }
+                await websocket.send(json.dumps(subscribe_message))
+                logger.info(f"📊 Subscribed to {pair} 1m candlesticks")
+            
+            async for message in websocket:
+                try:
+                    data = json.loads(message)
+                    
+                    if (data.get("channel") == "spot.candlesticks" and 
+                        data.get("event") == "update"):
+                        
+                        result = data.get("result", {})
+                        
+                        # CORREÇÃO: Usar 'n' em vez de 'name' (formato atual da API)
+                        currency_pair_full_str = result.get("n")
+                        
+                        # Verificar se temos uma string válida para o par de moedas
+                        if not currency_pair_full_str or not isinstance(currency_pair_full_str, str):
+                            logger.warning(f"Invalid currency pair format: {result}")
+                            continue
+                            
+                        timestamp_str = result.get("t")
+                        open_str = result.get("o")
+                        high_str = result.get("h")
+                        low_str = result.get("l")
+                        close_str = result.get("c")
+                        volume_str = result.get("v")
+
+                        # Validação inicial: garantir que as chaves críticas estão presentes e são strings
+                        required_fields = [timestamp_str, open_str, high_str, low_str, close_str, volume_str]
+                        if not all(isinstance(s, str) and s for s in required_fields):
+                            logger.warning(f"Skipping incomplete candlestick update: {result}")
+                            continue
+                        
+                        try:
+                            # Tentar converter todas as strings para seus tipos numéricos
+                            timestamp = int(timestamp_str)
+                            open_price = float(open_str)
+                            high_price = float(high_str)
+                            low_price = float(low_str)
+                            close_price = float(close_str)
+                            volume = float(volume_str)
+                            
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Skipping invalid candlestick values: {e} - Data: {result}")
+                            continue
+                        
+                        # Extrair o símbolo do ativo (e.g., 'btc' de '1m_BTC_USDT')
+                        parts = currency_pair_full_str.split('_')
+                        if len(parts) < 2:
+                            logger.warning(f"Skipping invalid currency pair format: {currency_pair_full_str}")
+                            continue
+                        
+                        # Determinar se o formato é "intervalo_BASE_QUOTE" ou "BASE_QUOTE"
+                        if parts[0].endswith('m') or parts[0].endswith('h') or parts[0].endswith('d'):
+                            asset_key = parts[1].lower()
+                        else:
+                            asset_key = parts[0].lower()
+
+                        # Verificar se o asset_key é um dos que estamos monitorando
+                        valid_assets = [s.split('_')[0].lower() for s in TRADING_SYMBOLS]
+                        if asset_key not in valid_assets:
+                            logger.debug(f"Skipping unsubscribed asset: {asset_key} (from {currency_pair_full_str})")
+                            continue
+                        
+                        new_candle = {
+                            "timestamp": timestamp,
+                            "open": open_price, 
+                            "high": high_price, 
+                            "low": low_price,
+                            "close": close_price,
+                            "volume": volume,
+                            "datetime": datetime.fromtimestamp(timestamp).isoformat()
+                        }
+                        
+                        update_realtime_macd(asset_key, new_candle)
+                        
+                        broadcast_data = {
+                        "type": "ohlcv_update",
+                        "asset": asset_key.upper(),
+                        "candle": new_candle,
+                        "macd_data": realtime_ohlcv_cache[asset_key]["macd_data"],
+                        "rsi_data": realtime_ohlcv_cache[asset_key]["rsi_data"], # NOVO
+                        "macd_angle_data": realtime_ohlcv_cache[asset_key]["macd_angle_data"], # NOVO
+                        "stochrsi_data": realtime_ohlcv_cache[asset_key]["stochrsi_data"], # NOVO
+                        "timestamp": datetime.now().isoformat()
+                    }
+                    
+                        await broadcast_ohlcv_update(broadcast_data)
+                        
+                        logger.debug(f"📊 New {asset_key.upper()} candle: ${new_candle['close']:,.2f}, Vol: {new_candle['volume']:,.0f}")
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing WebSocket message: {e}", exc_info=True)
+                    continue
+                
+        except websockets.exceptions.ConnectionClosedOK:
+            logger.info("Gate.io OHLCV WebSocket connection closed normally.")
+        except Exception as e:
+            logger.error(f"Gate.io OHLCV WebSocket error: {e}", exc_info=True)
+        finally:
+            for asset_pair in currency_pairs_to_subscribe:
+                asset_key_final = asset_pair.split('_')[0].lower()
+                if asset_key_final in realtime_ohlcv_cache:
+                    realtime_ohlcv_cache[asset_key_final]["websocket_connected"] = False
+            
+            if websocket:
+                await websocket.close()
+            
+            await asyncio.sleep(5)
+            logger.info("🔄 Attempting to reconnect OHLCV WebSocket...")
+
+async def broadcast_ohlcv_update(data: Dict):
+    """Envia atualização OHLCV para todos os clientes conectados"""
+    if not active_ohlcv_websocket_connections:
+        return
+    
+    disconnected_clients = []
+    for connection in list(active_ohlcv_websocket_connections):
+        try:
+            await connection.send_json(data)
+            logger.debug(f"Successfully sent OHLCV data to client {connection.client}")
+        except Exception as e:
+            logger.warning(f"Error sending to OHLCV WebSocket client: {e}", exc_info=True)
+            disconnected_clients.append(connection)
+    
+    for client in disconnected_clients:
+        if client in active_ohlcv_websocket_connections:
+            active_ohlcv_websocket_connections.remove(client)
+
+# ===============================================================================
+# 📊 ENDPOINTS PARA DADOS MACD TEMPO REAL (NOVO)
+# ===============================================================================
+
+@app.get("/api/macd/realtime/{asset}")
+def get_realtime_macd(asset: str):
+    """Endpoint para MACD em tempo real, com fallback graceful se dados não estiverem prontos."""
+    try:
+        asset_lower = asset.lower()
+        
+        # Se o ativo não está no cache ou não tem candles, retorne um estado de 'warming up'
+        if asset_lower not in realtime_ohlcv_cache or not realtime_ohlcv_cache[asset_lower]["candles"]:
+            logger.warning(f"⚠️ Realtime MACD for {asset}: Cache is empty or warming up. Returning default values.")
+            return {
+                "asset": asset.upper(),
+                "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []}, # Estrutura vazia
+                "rsi_data": {"rsi": [], "last_value": 0.0, "angle": 0.0, "strength": 0.0, "trend": "NEUTRAL"},
+                "macd_angle_data": {"macd_angle": 0.0, "macd_angle_strength": 0.0, "signal_angle": 0.0, "signal_angle_strength": 0.0},
+                "stochrsi_data": {"k_value": 0.0, "d_value": 0.0, "k_series": [], "d_series": []},
+                "current_candle": {},
+                "websocket_connected": realtime_ohlcv_cache.get(asset_lower, {}).get("websocket_connected", False),
+                "last_update": None,
+                "candles_count": 0,
+                "recent_crossovers": [],
+                "timestamp": datetime.now().isoformat(),
+                "status": "warming_up",
+                "message": f"Real-time data for {asset} not yet available. Please wait."
+            }
+        
+        asset_data = realtime_ohlcv_cache[asset_lower]
+        
+        current_candle_formatted = {}
+        if asset_data["current_candle"]:
+            current_candle_formatted = {
+                "open": round(asset_data["current_candle"]["open"], 2),
+                "high": round(asset_data["current_candle"]["high"], 2),
+                "low": round(asset_data["current_candle"]["low"], 2),
+                "close": round(asset_data["current_candle"]["close"], 2),
+                "volume": int(asset_data["current_candle"]["volume"]),
+                "datetime": asset_data["current_candle"]["datetime"]
+            }
+
+        return {
+            "asset": asset.upper(),
+            "macd_data": asset_data["macd_data"],
+            "rsi_data": asset_data["rsi_data"],
+            "macd_angle_data": asset_data["macd_angle_data"],
+            "stochrsi_data": asset_data.get("stochrsi_data", {"k_value": 0, "d_value": 0}),
+            "current_candle": current_candle_formatted,
+            "websocket_connected": asset_data["websocket_connected"],
+            "last_update": asset_data["last_update"],
+            "candles_count": len(asset_data["candles"]),
+            "recent_crossovers": macd_detector.get_recent_crossovers(5),
+            "timestamp": datetime.now().isoformat(),
+            "status": "active"
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting realtime MACD for {asset}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/crossovers/recent")
+def get_recent_crossovers():
+    """Endpoint para cruzamentos MACD recentes"""
+    try:
+        return {
+            "recent_crossovers": macd_detector.get_recent_crossovers(20),
+            "total_crossovers": len(macd_detector.crossover_history),
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Error getting crossovers: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ===============================================================================
+# API ENDPOINTS (EXISTING)
+# ===============================================================================
+
+@app.get("/")
+def read_root():
+    """Endpoint raiz com informações da API"""
+    return {
+        "message": f"🚀 Trading Dashboard API {SYSTEM_INFO['version']} - Compatible",
+        "description": SYSTEM_INFO["description"],
+        "version": SYSTEM_INFO["version"],
+        "current_time": datetime.now().isoformat(),
+        "status": "🟢 ONLINE",
+        "endpoints": {
+            "📊 Market Data": {
+                "/api/current": "Real-time prices + angular analysis + sentiment",
+                "/api/precos/{period}": "Historical prices and volume",
+            },
+            "🎭 Market Sentiment": {
+                "/api/sentiment": "Real-time Gate.io sentiment (via REST)",
+                "/ws/sentiment": "Real-time sentiment WebSocket stream",
+                "/api/sentiment/history": "24h sentiment history",
+            },
+            "📐 Angular Analysis": {
+                "/api/angular": "Complete angular analysis",
+                "/api/patterns": "Detected angular patterns",
+            },
+            "📅 Economic Calendar": {
+                "/api/calendar": "FRED economic calendar",
+                "/api/events": "Upcoming economic events",
+            },
+            "🚨 Alert System": {
+                "/api/alerts": "All alerts (macro + angular + FRED + trades)",
+            },
+            "💰 Trade Signals (Backtest Dashboard)": {
+                "/api/backtest-recommendations": "Top N backtest recommendations (Dashboard's internal backtest)"
+            },
+            "🤖 Trading Bot (Real)": {
+                "/api/trading-bot/status": "Current status of the REAL trading bot",
+                "/api/trading-bot/positions": "List of active REAL positions",
+                "/api/trading-bot/signals": "Recently detected REAL trade signals",
+                "/api/trading-bot/performance": "Performance metrics of the REAL bot",
+                "/api/trading-bot/start": "Start the REAL trading bot",
+                "/api/trading-bot/stop": "Stop the REAL trading bot",
+                "/api/trading-bot/refresh-balance": "Force refresh bot balance",
+                "/api/trading-bot/diagnostics": "Full diagnostics of the bot's connectivity"
+            },
+            "⚙️ System": {
+                "/api/status": "API status and health check",
+                "/api/debug/gateio": "Gate.io API connectivity test",
+                "/api/debug/test-data-fetch": "Test data fetching from all sources",
+                "/docs": "API documentation",
+            },
+            "📈 Real-time MACD": {
+                "/ws/ohlcv": "Real-time OHLCV and MACD WebSocket stream for BTC/ETH",
+                "/api/macd/realtime/{asset}": "Latest real-time MACD data for a given asset",
+                "/api/crossovers/recent": "Recent MACD crossover alerts"
+            }
+        },
+        "features": SYSTEM_INFO["features"]
+    }
+
+@app.get("/api/current")
+def get_current_data():
+    """Endpoint principal para dados atuais - CORRIGIDO para compatibilidade total com frontend"""
+    try:
+        current_data = get_current_market_data()
+        update_price_history(current_data)
+
+        angular_info = {
+            "btc_angle": 0, "btc_strength": 0, "btc_trend": "NEUTRAL",
+            "gold_angle": 0, "gold_strength": 0, "gold_trend": "NEUTRAL",
+            "dxy_angle": 0, "dxy_strength": 0, "dxy_trend": "NEUTRAL"
+        }
+        
+        if cache["angular_data"]:
+            latest_angular = cache["angular_data"][-1]
+            for asset_key in ["btc", "gold", "dxy"]:
+                asset_data = latest_angular.get(asset_key)
+                if isinstance(asset_data, dict):
+                    angular_info[f"{asset_key}_angle"] = asset_data.get("angle", 0)
+                    angular_info[f"{asset_key}_strength"] = asset_data.get("strength", 0)
+                    angular_info[f"{asset_key}_trend"] = asset_data.get("trend", "NEUTRAL")
+
+        fred_info = {
+            "today_events": 0,
+            "today_high_impact": 0,
+            "next_critical_event": None,
+            "total_upcoming": 0,
+            "pre_alerts_active": 0
+        }
+        if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
+            bot_fred_calendar_instance = real_trading_bot.analyzer.fred_calendar
+            if real_trading_bot.environment == 'simulate_backtest' and hasattr(bot_fred_calendar_instance, 'datetime_now_override'):
+                bot_fred_calendar_instance.datetime_now_override = datetime.now()
+            
+            # Chama para garantir que o cache seja atualizado (get_upcoming_releases já atualiza internamente)
+            bot_fred_calendar_instance.get_upcoming_releases(days_ahead=14)
+
+            upcoming_events_from_bot = bot_fred_calendar_instance.cache["upcoming_events"]
+            pre_event_alerts_from_bot = bot_fred_calendar_instance.generate_pre_event_alerts(hours_before=48)
+            next_critical_event_from_bot = bot_fred_calendar_instance.get_next_critical_event()
+            today_events_from_bot = bot_fred_calendar_instance.get_high_impact_events_today()
+
+            fred_info = {
+                "today_events": len(today_events_from_bot),
+                "today_high_impact": len([e for e in today_events_from_bot if e.importance == "HIGH"]),
+                "next_critical_event": {
+                    "name": next_critical_event_from_bot.name,
+                    "date": next_critical_event_from_bot.date.isoformat(),
+                    "impact_score": next_critical_event_from_bot.impact_score
+                } if next_critical_event_from_bot else None,
+                "total_upcoming": len(upcoming_events_from_bot),
+                "pre_alerts_active": len(pre_event_alerts_from_bot)
+            }
+
+
+        sentiment_info = {
+            "btc": {
+                "buyers_percent": sentiment_cache["btc_sentiment"]["buyers"],
+                "sellers_percent": sentiment_cache["btc_sentiment"]["sellers"],
+                "market_mood": sentiment_cache["market_mood"],
+                "fear_greed_index": sentiment_cache["fear_greed_index"],
+                "trend": sentiment_cache["btc_sentiment"]["trend"],
+            },
+            "paxg": {
+                "buyers_percent": sentiment_cache["paxg_sentiment"]["buyers"],
+                "sellers_percent": sentiment_cache["paxg_sentiment"]["sellers"],
+                "trend": sentiment_cache["paxg_sentiment"]["trend"],
+            },
+            "websocket_connected": sentiment_cache["websocket_connected"],
+            "last_update": sentiment_cache["btc_sentiment"]["last_update"]
+        }
+
+        realtime_macd_info = {
+            "btc_websocket_connected": realtime_ohlcv_cache["btc"]["websocket_connected"],
+            "btc_last_update": realtime_ohlcv_cache["btc"]["last_update"],
+            "btc_crossovers_count": len(macd_detector.crossover_history)
+        }
+        if 'eth' in realtime_ohlcv_cache:
+            realtime_macd_info["eth_websocket_connected"] = realtime_ohlcv_cache["eth"]["websocket_connected"]
+            realtime_macd_info["eth_last_update"] = realtime_ohlcv_cache["eth"]["last_update"]
+            realtime_macd_info["eth_crossovers_count"] = len([c for c in macd_detector.crossover_history if c['asset'] == 'ETH'])
+
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "status": "active",
+            "market_status": "Real-time data available",
+            "data_quality": {
+                "price_data_valid": all(current_data[asset].get("current_price", 0) > 0 for asset in SYMBOLS),
+                "angular_analysis_active": len(cache["angular_data"]) > 0,
+                "fred_calendar_active": fred_info["total_upcoming"] > 0,
+                "sentiment_monitoring_active": sentiment_cache["websocket_connected"],
+                "realtime_ohlcv_active": realtime_ohlcv_cache["btc"]["websocket_connected"] or ('eth' in realtime_ohlcv_cache and realtime_ohlcv_cache["eth"]["websocket_connected"])
+            },
+            "assets": {
+                "gold": {
+                    "name": "Gold Futures",
+                    "symbol": SYMBOLS['gold'],
+                    "current_price": current_data["gold"]["current_price"],
+                    "current_volume": current_data["gold"]["current_volume"],
+                    "volume_formatted": format_volume(current_data["gold"]["current_volume"]),
+                    "day_high": current_data["gold"]["day_high"],
+                    "day_low": current_data["gold"]["day_low"],
+                    "previous_close": current_data["gold"]["previous_close"],
+                    "change": current_data["gold"]["current_price"] - current_data["gold"]["previous_close"],
+                    "change_percent": ((current_data["gold"]["current_price"] - current_data["gold"]["previous_close"]) / current_data["gold"]["previous_close"] * 100) if current_data["gold"]["previous_close"] > 0 else 0,
+                    "color": ASSET_COLORS.get('gold', '#FFD700'),
+                    "angular": {
+                        "angle": angular_info["gold_angle"],
+                        "strength": angular_info["gold_strength"],
+                        "trend": angular_info["gold_trend"]
+                    }
+                },
+                "btc": {
+                    "name": "Bitcoin",
+                    "symbol": SYMBOLS['btc'],
+                    "current_price": current_data["btc"]["current_price"],
+                    "current_volume": current_data["btc"]["current_volume"],
+                    "volume_formatted": format_volume(current_data["btc"]["current_volume"]),
+                    "day_high": current_data["btc"]["day_high"],
+                    "day_low": current_data["btc"]["day_low"],
+                    "previous_close": current_data["btc"]["previous_close"],
+                    "change": current_data["btc"]["current_price"] - current_data["btc"]["previous_close"],
+                    "change_percent": ((current_data["btc"]["current_price"] - current_data["btc"]["previous_close"]) / current_data["btc"]["previous_close"] * 100) if current_data["btc"]["previous_close"] > 0 else 0,
+                    "color": ASSET_COLORS.get('btc', '#FF8C00'),
+                    "angular": {
+                        "angle": angular_info["btc_angle"],
+                        "strength": angular_info["btc_strength"],
+                        "trend": angular_info["btc_trend"]
+                    }
+                },
+                "dxy": {
+                    "name": "US Dollar Index",
+                    "symbol": SYMBOLS['dxy'],
+                    "current_price": current_data["dxy"]["current_price"],
+                    "current_volume": current_data["dxy"]["current_volume"],
+                    "volume_formatted": format_volume(current_data["dxy"]["current_volume"]),
+                    "day_high": current_data["dxy"]["day_high"],
+                    "day_low": current_data["dxy"]["day_low"],
+                    "previous_close": current_data["dxy"]["previous_close"],
+                    "change": current_data["dxy"]["current_price"] - current_data["dxy"]["previous_close"],
+                    "change_percent": ((current_data["dxy"]["current_price"] - current_data["dxy"]["previous_close"]) / current_data["dxy"]["previous_close"] * 100) if current_data["dxy"]["previous_close"] > 0 else 0,
+                    "color": ASSET_COLORS.get('dxy', '#00CC66'),
+                    "angular": {
+                        "angle": angular_info["dxy_angle"],
+                        "strength": angular_info["dxy_strength"],
+                        "trend": angular_info["dxy_trend"]
+                    }
+                }
+            },
+            "analysis": {
+                "total_alerts": len(cache["alerts"]),
+                "angular_alerts": len([a for a in cache["alerts"] if a.get("type", "").startswith("ANGULAR_")]),
+                "fred_alerts": len([a for a in cache["alerts"] if a.get("type", "") == "PRE_EVENT_ALERT"]),
+                "trade_signals": len([a for a in cache["alerts"] if a.get("type", "").startswith("BTC_")]),
+                "macd_crossovers": len([a for a in cache["alerts"] if a.get("type", "") == "MACD_CROSSOVER"]),
+                "price_history_points": len(cache["price_history"]),
+                "angular_history_points": len(cache["angular_data"]),
+                "last_angular_analysis": cache["last_angular_analysis"],
+                "economic_calendar": fred_info,
+                "market_sentiment": sentiment_info,
+                "realtime_macd_status": realtime_macd_info
+            },
+            "system_health": {
+                "cache_size": len(cache["price_history"]),
+                "uptime_status": "healthy",
+                "last_data_refresh": datetime.now().isoformat(),
+                "api_endpoints_active": 13,
+                "websocket_status": {
+                    "sentiment": "connected" if sentiment_cache["websocket_connected"] else "disconnected_or_failed_api",
+                    "ohlcv": "connected" if (realtime_ohlcv_cache["btc"]["websocket_connected"] or ('eth' in realtime_ohlcv_cache and realtime_ohlcv_cache["eth"]["websocket_connected"])) else "disconnected_or_failed_api"
+                }
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting current data: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting current data: {str(e)}")
+
+@app.get("/api/debug/system-status")
+def get_debug_system_status():
+    """Endpoint de debug para verificar status completo do sistema"""
+    global real_trading_bot
+    
+    try:
+        current_time = datetime.now()
+        
+        debug_info = {
+            "timestamp": current_time.isoformat(),
+            "system_overview": {
+                "api_version": SYSTEM_INFO['version'],
+                "environment": ENVIRONMENT.upper() if ENVIRONMENT else "NOT_SET",
+                "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            },
+            "trading_bot_status": {
+                "initialized": real_trading_bot is not None,
+                "running": real_trading_bot.running if real_trading_bot else False,
+                "environment": real_trading_bot.environment.upper() if real_trading_bot else "N/A",
+                "balance_check": None,
+                "error": None
+            },
+            "api_credentials": {
+                "api_key_configured": bool(API_KEY),
+                "api_key_length": len(API_KEY) if API_KEY else 0,
+                "api_key_preview": f"{API_KEY[:8]}..." if API_KEY and len(API_KEY) > 8 else "NOT_SET",
+                "secret_configured": bool(SECRET),
+                "secret_length": len(SECRET) if SECRET else 0,
+                "environment_variable": ENVIRONMENT,
+                "newsapi_key_configured": bool(TRADING_BOT_NEWS_API_KEY and TRADING_BOT_NEWS_API_KEY != "DUMMY_KEY_NEWSAPI"),
+                "fred_api_key_configured": bool(TRADING_BOT_FRED_API_KEY and TRADING_BOT_FRED_API_KEY != "DUMMY_KEY_FRED"),
+                "cryptopanic_api_key_configured": bool(TRADING_BOT_CRYPTOPANIC_API_KEY and TRADING_BOT_CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC")
+            },
+            "data_sources": {
+                "yfinance_status": "available",
+                "gateio_sentiment_ws_status": {
+                    "connected": sentiment_cache["websocket_connected"],
+                    "last_update": sentiment_cache["btc_sentiment"]["last_update"],
+                    "btc_buyers": sentiment_cache["btc_sentiment"]["buyers"],
+                    "data_age_minutes": None
+                },
+                "gateio_ohlcv_ws_status": {
+                    "connected": realtime_ohlcv_cache["btc"]["websocket_connected"],
+                    "last_update": realtime_ohlcv_cache["btc"]["last_update"],
+                    "candles_count": len(realtime_ohlcv_cache["btc"]["candles"])
+                },
+                "bot_internal_fred_calendar": {
+                    "active": real_trading_bot and real_trading_bot.analyzer.fred_calendar.api_key is not None,
+                    "last_update": real_trading_bot.analyzer.last_fred_update.isoformat() if real_trading_bot and real_trading_bot.analyzer.last_fred_update else None,
+                    "events_cached": len(real_trading_bot.analyzer.fred_events_cache) if real_trading_bot else 0
+                },
+                "bot_internal_sentiment_analysis": {
+                    "active": real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key is not None,
+                    "last_update": real_trading_bot.analyzer.sentiment_analyzer.last_update.get('BTC_USDT_sentiment_multi_source', None) if real_trading_bot else None,
+                    "cache_size": len(real_trading_bot.analyzer.sentiment_analyzer.sentiment_cache) if real_trading_bot else 0
+                }
+            },
+            "cache_status": {
+                "price_history_points": len(cache["price_history"]),
+                "angular_data_points": len(cache["angular_data"]),
+                "total_alerts": len(cache["alerts"]),
+                "fred_events_dashboard_cache": len(cache["fred_data"]["upcoming_events"]),
+                "backtest_recommendations": len(backtest_recommendations_cache["recommendations"])
+            },
+            "websocket_connections": {
+                "sentiment_clients": len(active_sentiment_websocket_connections),
+                "ohlcv_clients": len(active_ohlcv_websocket_connections),
+                "rsi_macd_clients": len(active_rsi_macd_websocket_connections)
+            }
+        }
+        
+        if sentiment_cache["btc_sentiment"]["last_update"]:
+            try:
+                last_update = datetime.fromisoformat(sentiment_cache["btc_sentiment"]["last_update"])
+                age_seconds = (current_time - last_update).total_seconds()
+                debug_info["data_sources"]["gateio_sentiment_ws_status"]["data_age_minutes"] = round(age_seconds / 60, 1)
+            except:
+                pass
+        
+        if real_trading_bot:
+            try:
+                balance = real_trading_bot.get_account_balance()
+                debug_info["trading_bot_status"]["balance_check"] = {
+                    "status": "success",
+                    "balance": balance,
+                    "message": f"Balance: ${balance}"
+                }
+            except Exception as e:
+                debug_info["trading_bot_status"]["balance_check"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+                debug_info["trading_bot_status"]["error"] = str(e)
+        
+        issues = []
+        if not real_trading_bot:
+            issues.append("Trading bot not initialized")
+        if not API_KEY or not SECRET:
+            issues.append("Gate.io API credentials missing")
+        if not sentiment_cache["websocket_connected"]:
+            issues.append("Gate.io sentiment API disconnected (Dashboard's direct fetch)")
+        if not realtime_ohlcv_cache["btc"]["websocket_connected"]:
+            issues.append("Gate.io OHLCV WebSocket disconnected")
+        if TRADING_BOT_FRED_API_KEY == "DUMMY_KEY_FRED" or (real_trading_bot and real_trading_bot.analyzer.fred_calendar.api_key == "DUMMY_KEY_FRED"):
+            issues.append("FRED API Key is missing or invalid for the Trading Bot")
+        if TRADING_BOT_NEWS_API_KEY == "DUMMY_KEY_NEWSAPI" or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer.news_api_key == "DUMMY_KEY_NEWSAPI"):
+            issues.append("NEWS_API_KEY is missing for the Trading Bot's sentiment analysis")
+        if TRADING_BOT_CRYPTOPANIC_API_KEY == "DUMMY_KEY_CRYPTOPANIC" or (real_trading_bot and real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key == "DUMMY_KEY_CRYPTOPANIC"):
+            issues.append("CRYPTOPANIC_API_KEY is missing for the Trading Bot's sentiment analysis")
+
+        debug_info["overall_status"] = {
+            "healthy": len(issues) == 0,
+            "issues_count": len(issues),
+            "issues": issues,
+            "recommendations": []
+        }
+        
+        if not API_KEY or not SECRET:
+            debug_info["overall_status"]["recommendations"].append("Configure GATE_TESTNET_API_KEY and GATE_TESTNET_API_SECRET in .env file")
+        
+        if not real_trading_bot:
+            debug_info["overall_status"]["recommendations"].append("Restart application after configuring all API credentials")
+        
+        if not sentiment_cache["websocket_connected"]:
+            debug_info["overall_status"]["recommendations"].append("Check Gate.io API connectivity for Dashboard's sentiment fetch")
+        
+        return debug_info
+        
+    except Exception as e:
+        logger.error(f"❌ Error in debug system status: {e}", exc_info=True)
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e),
+            "status": "debug_endpoint_failed"
+        }
+
+
+@app.get("/api/debug/test-data-fetch")
+def test_data_fetch():
+    """Testa busca de dados de diferentes fontes"""
+    
+    test_results = {
+        "timestamp": datetime.now().isoformat(),
+        "tests": {}
+    }
+    
+    try:
+        gold_data = yf.download('GC=F', period='5d', interval='1d', progress=False, auto_adjust=True)
+        test_results["tests"]["yfinance_gold"] = {
+            "status": "success" if not gold_data.empty else "empty_data",
+            "data_points": len(gold_data) if not gold_data.empty else 0,
+            "columns": list(gold_data.columns) if not gold_data.empty else []
+        }
+    except Exception as e:
+        test_results["tests"]["yfinance_gold"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+    
+    try:
+        btc_data = yf.download('BTC-USD', period='5d', interval='1d', progress=False, auto_adjust=True)
+        test_results["tests"]["yfinance_btc"] = {
+            "status": "success" if not btc_data.empty else "empty_data",
+            "data_points": len(btc_data) if not btc_data.empty else 0,
+            "columns": list(btc_data.columns) if not btc_data.empty else []
+        }
+    except Exception as e:
+        test_results["tests"]["yfinance_btc"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+    
+    try:
+        dxy_data = yf.download('DX-Y.NYB', period='5d', interval='1d', progress=False, auto_adjust=True)
+        test_results["tests"]["yfinance_dxy"] = {
+            "status": "success" if not dxy_data.empty else "empty_data",
+            "data_points": len(dxy_data) if not dxy_data.empty else 0,
+            "columns": list(dxy_data.columns) if not dxy_data.empty else []
+        }
+    except Exception as e:
+        test_results["tests"]["yfinance_dxy"] = {
+            "status": "failed",
+            "error": str(e)
+        }
+    
+    test_results["tests"]["gateio_sentiment_dashboard_fetch"] = {
+        "status": "connected" if sentiment_cache["websocket_connected"] else "disconnected",
+        "btc_buyers": sentiment_cache["btc_sentiment"]["buyers"],
+        "last_update": sentiment_cache["btc_sentiment"]["last_update"]
+    }
+
+    test_results["tests"]["gateio_ohlcv_dashboard_fetch"] = {
+        "status": "connected" if realtime_ohlcv_cache["btc"]["websocket_connected"] else "disconnected",
+        "btc_candles_count": len(realtime_ohlcv_cache["btc"]["candles"]),
+        "last_update": realtime_ohlcv_cache["btc"]["last_update"]
+    }
+    
+    global real_trading_bot
+    if real_trading_bot:
+        try:
+            balance = real_trading_bot.get_account_balance()
+            test_results["tests"]["trading_bot_main_api"] = {
+                "status": "working",
+                "balance": balance,
+                "environment": real_trading_bot.environment
+            }
+        except Exception as e:
+            test_results["tests"]["trading_bot_main_api"] = {
+                "status": "error",
+                "error": str(e)
+            }
+        
+        try:
+            fred_events_count = len(real_trading_bot.analyzer.fred_events_cache)
+            test_results["tests"]["bot_internal_fred"] = {
+                "status": "active" if fred_events_count > 0 else "inactive",
+                "events_count": fred_events_count,
+                "api_key_configured": real_trading_bot.analyzer.fred_calendar.api_key is not None
+            }
+        except Exception as e:
+            test_results["tests"]["bot_internal_fred"] = {
+                "status": "error",
+                "error": str(e)
+            }
+
+        try:
+            bot_sentiment_cache_size = len(real_trading_bot.analyzer.sentiment_analyzer.sentiment_cache)
+            test_results["tests"]["bot_internal_sentiment_api"] = {
+                "status": "active" if bot_sentiment_cache_size > 0 else "inactive",
+                "cache_size": bot_sentiment_cache_size,
+                "newsapi_key_configured": TRADING_BOT_NEWS_API_KEY != "DUMMY_KEY_NEWSAPI",
+                "cryptopanic_key_configured": TRADING_BOT_CRYPTOPANIC_API_KEY != "DUMMY_KEY_CRYPTOPANIC"
+            }
+        except Exception as e:
+            test_results["tests"]["bot_internal_sentiment_api"] = {
+                "status": "error",
+                "error": str(e)
+            }
+
+    else:
+        test_results["tests"]["trading_bot_main_api"] = {
+            "status": "not_initialized"
+        }
+        test_results["tests"]["bot_internal_fred"] = {
+            "status": "not_initialized"
+        }
+        test_results["tests"]["bot_internal_sentiment_api"] = {
+            "status": "not_initialized"
+        }
+    
+    return test_results
+
+@app.get("/api/precos/{period}")
+async def get_financial_data_by_period(period: str):
+    """Endpoint para dados históricos, incluindo MACD, RSI, STOCHRSI e Volume colorido - CORRIGIDO"""
+    logger.info(f"📊 Fetching financial data for period: {period}")
+    
+    # Mapeamento de períodos e intervalos para YFinance e Gate.io
+    # Aumentado 'period' para '5m' para buscar mais dados (1h a 7d)
+    yfinance_period_map = {
+        '1m': '7d',   # 1 minuto de intervalo, 7 dias de período (máximo permitido pelo YFinance para 1m)
+        '5m': '7d',   # 5 minutos de intervalo, 7 dias de período (para cobrir mais de 1h)
+        '15m': '60d',
+        '30m': '60d',
+        '1h': '730d', # 2 anos
+        '4h': '730d',
+        '1d': '1y',
+        '5d': '5d',
+        '1mo': '1mo',
+        '3mo': '3mo',
+        '6mo': '1y',
+        '1y': '2y',
+        '2y': '5y',
+        '5y': '10y',
+        'max': 'max',
+    }
+    
+    yfinance_interval_map = {
+        '1m': '1m',
+        '5m': '5m',
+        '15m': '15m',
+        '30m': '30m',
+        '1h': '1h', # Usar 1h para 1h
+        '4h': '4h',
+        '1d': '1d',
+        '5d': '1d',
+        '1mo': '1d',
+        '3mo': '1d',
+        '6mo': '1d',
+        '1y': '1d',
+        '2y': '1d',
+        '5y': '1d',
+        'max': '1d',
+    }
+    
+    gateio_interval_map = {
+        '1m': '1m',
+        '5m': '5m', # Usar 5m para 5 dias
+        '15m': '15m',
+        '30m': '30m',
+        '1h': '1h',
+        '4h': '4h',
+        '1d': '1d',
+        '5d': '5m',
+        '1mo': '1h',
+        '3mo': '4h',
+        '6mo': '1d',
+        '1y': '1d',
+        '2y': '1d',
+        '5y': '1d',
+        'max': '1d',
+    }
+    
+    gateio_limit_map = {
+        '1m': 1000,
+        '5m': 1000, # Aumentado para 1000 para capturar mais de 1h
+        '15m': 1000,
+        '30m': 1000,
+        '1h': 1000,
+        '4h': 1000,
+        '1d': 1000,
+        '5d': 1000,
+        '1mo': 720,
+        '3mo': 500,
+        '6mo': 400,
+        '1y': 365,
+        '2y': 730,
+        '5y': 1000,
+        'max': 1000,
+    }
+
+    try:
+        data = {}
+        
+        all_symbols_to_fetch = list(SYMBOLS.keys()) + [s.split('_')[0].lower() for s in TRADING_SYMBOLS if s.split('_')[0].lower() not in SYMBOLS.keys()]
+
+        for asset_name in all_symbols_to_fetch:
+            symbol_yf = SYMBOLS.get(asset_name)
+            symbol_gateio = f"{asset_name.upper()}_USDT" if asset_name.upper() in [s.split('_')[0].upper() for s in TRADING_SYMBOLS] else None
+
+            prices = []
+            volumes = []
+            volume_colors = []
+            asset_dates = []
+            macd_values = []
+            macd_signal_values = []
+            macd_hist_values = []
+            rsi_values = [] 
+            stochrsi_k_values = [] 
+            stochrsi_d_values = [] 
+            opens = []
+            highs = []
+            lows = []
+
+            try:
+                hist = pd.DataFrame()
+                
+                # Definir start_date para yfinance para garantir dados suficientes
+                end_date_yf = datetime.now(pytz.utc) # Usar timezone-aware datetime para consistência
+                
+                start_date_yf_base = end_date_yf - timedelta(days=7) 
+                if period == '1d': start_date_yf_base = end_date_yf - timedelta(days=1)
+                elif period == '5d': start_date_yf_base = end_date_yf - timedelta(days=5)
+                elif period == '1mo': start_date_yf_base = end_date_yf - timedelta(days=30)
+                elif period == '3mo': start_date_yf_base = end_date_yf - timedelta(days=90)
+                elif period == '6mo': start_date_yf_base = end_date_yf - timedelta(days=180)
+                elif period == '1y': start_date_yf_base = end_date_yf - timedelta(days=365)
+                elif period == '2y': start_date_yf_base = end_date_yf - timedelta(days=730)
+                elif period == '5y': start_date_yf_base = end_date_yf - timedelta(days=1825)
+                
+                yf_interval = yfinance_interval_map.get(period, '1d')
+                yf_period_arg = yfinance_period_map.get(period, '1d') 
+                
+                if symbol_gateio:
+                    gateio_interval = gateio_interval_map.get(period, '1m')
+                    limit = gateio_limit_map.get(period, 1000) 
+                    
+                    logger.info(f"DEBUG: Fetching {asset_name.upper()} from Gate.io Futures (Contract: {symbol_gateio}, Interval: {gateio_interval}, Limit: {limit})")
+                    hist = await fetch_gateio_ohlcv(symbol_gateio, gateio_interval, limit)
+                    
+                    if hist.empty:
+                        logger.warning(f"⚠️ No Gate.io data received for {asset_name.upper()}, falling back to yfinance (if available)")
+                        if symbol_yf:
+                            try:
+                                logger.info(f"DEBUG: Fallback {asset_name.upper()} from yfinance (Symbol: {symbol_yf}, Period: {yf_period_arg}, Interval: {yf_interval})")
+                                if period in ['1m', '5m', '15m', '30m', '1h', '4h']: 
+                                     hist = yf.download(symbol_yf, period=yf_period_arg, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+                                else:
+                                     hist = yf.download(symbol_yf, start=start_date_yf_base, end=end_date_yf, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+                            except Exception as fallback_error:
+                                logger.error(f"❌ Fallback yfinance also failed for {asset_name.upper()}: {fallback_error}")
+                elif symbol_yf:
+                    logger.info(f"DEBUG: Fetching {asset_name} from yfinance (Symbol: {symbol_yf}, Period: {yf_period_arg}, Interval: {yf_interval})")
+                    try:
+                        if period in ['1m', '5m', '15m', '30m', '1h', '4h']:
+                             hist = yf.download(symbol_yf, period=yf_period_arg, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+                        else:
+                             hist = yf.download(symbol_yf, start=start_date_yf_base, end=end_date_yf, interval=yf_interval, progress=False, threads=False, auto_adjust=True)
+
+                    except Exception as yf_error:
+                        logger.error(f"❌ yfinance error for {symbol_yf}: {yf_error}")
+                        try:
+                            logger.info(f"DEBUG: Retry {asset_name} with conservative parameters")
+                            hist = yf.download(symbol_yf, period='1mo', interval='1d', progress=False, threads=False, auto_adjust=True)
+                        except Exception as retry_error:
+                            logger.error(f"❌ Conservative retry also failed for {symbol_yf}: {retry_error}")
+                    
+                    if hist.empty:
+                        logger.warning(f"⚠️ No yfinance data received for {symbol_yf}, or DataFrame is empty after download.")
+                        continue
+                else:
+                    logger.warning(f"No valid symbol mapping found for {asset_name}. Skipping.")
+                    continue
+
+                required_ohlcv_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+                if (not hist.empty and 
+                    all(col in hist.columns for col in required_ohlcv_cols)):
+                    
+                    for col in required_ohlcv_cols:
+                        hist[col] = pd.to_numeric(hist[col], errors='coerce')
+                        if col in ['Open', 'High', 'Low', 'Close']:
+                            hist[col] = hist[col].ffill().bfill() 
+                        elif col == 'Volume':
+                            hist[col] = hist[col].fillna(0) 
+
+                    hist_cleaned = hist.dropna(subset=['Close']) 
+
+                    if hist_cleaned.empty:
+                        logger.warning(f"DEBUG: {asset_name} - Cleaned history is empty after NaN filling and dropping. Cannot calculate indicators.")
+                        prices, volumes, opens, highs, lows, volume_colors, asset_dates = [],[],[],[],[],[],[]
+                        macd_values, macd_signal_values, macd_hist_values, rsi_values = [],[],[],[]
+                        stochrsi_k_values, stochrsi_d_values = [],[]
+                        continue
+
+                    hist_cleaned = calculate_volume_colors_and_macd(hist_cleaned)
+                    
+                    if hasattr(hist_cleaned.index, 'tz_localize'):
+                        hist_cleaned.index = hist_cleaned.index.tz_localize(None) 
+                    
+                    prices = hist_cleaned['Close'].tolist()
+                    volumes = hist_cleaned['Volume'].tolist()
+                    opens = hist_cleaned['Open'].tolist()
+                    highs = hist_cleaned['High'].tolist()
+                    lows = hist_cleaned['Low'].tolist()
+                    volume_colors = hist_cleaned.get('price_direction', ['neutral'] * len(prices)).tolist()
+                                    
+                    asset_dates = hist_cleaned.index.strftime('%Y-%m-%dT%H:%M:%S').tolist()
+                                    
+                    # --- MACD ---
+                    if len(hist_cleaned) >= 34: 
+                        try:
+                            macd, macdsignal, macdhist = talib.MACD(
+                                hist_cleaned['Close'].values.astype(np.float64),
+                                fastperiod=12, 
+                                slowperiod=26, 
+                                signalperiod=9
+                            )
+                            macd_values = np.nan_to_num(macd).tolist()
+                            macd_signal_values = np.nan_to_num(macdsignal).tolist()
+                            macd_hist_values = np.nan_to_num(macdhist).tolist()
+                            logger.info(f"DEBUG: {asset_name} - MACD calculated. Length: {len(macd_values)}")
+                        except Exception as macd_error:
+                            logger.warning(f"MACD calculation failed for {asset_name}: {macd_error}")
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - NOT enough data ({len(hist_cleaned)}) for MACD calculation.")
+
+                    # --- RSI ---
+                    if len(hist_cleaned) >= 14:
+                        try:
+                            rsi_values_calc = talib.RSI(hist_cleaned['Close'].values.astype(np.float64), timeperiod=14)
+                            rsi_values = np.nan_to_num(rsi_values_calc).tolist()
+                            logger.info(f"DEBUG: {asset_name} - RSI calculated. Length: {len(rsi_values)}")
+                        except Exception as rsi_error_calc:
+                            logger.error(f"❌ Error calculating RSI for {asset_name}: {rsi_error_calc}", exc_info=True)
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - Insufficient data ({len(hist_cleaned)}) for RSI calculation (min 14).")
+
+                    # --- STOCHRSI ---
+                    if len(hist_cleaned) >= 17:
+                        try:
+                            fastk, fastd = talib.STOCHRSI(
+                                hist_cleaned['Close'].values.astype(np.float64),
+                                timeperiod=14, fastk_period=3, fastd_period=3, fastd_matype=0
+                            )
+                            stochrsi_k_values = np.nan_to_num(fastk).tolist()
+                            stochrsi_d_values = np.nan_to_num(fastd).tolist()
+                            logger.info(f"DEBUG: {asset_name} - STOCHRSI calculated. Length: {len(stochrsi_k_values)}")
+                        except Exception as stochrsi_error_calc:
+                            logger.error(f"❌ Error calculating STOCHRSI for {asset_name}: {stochrsi_error_calc}", exc_info=True)
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - Insufficient data ({len(hist_cleaned)}) for STOCHRSI calculation (min 17).")
+                    
+                    # Alinhar todas as séries ao menor comprimento para evitar erros no frontend
+                    all_series = [
+                        prices, volumes, opens, highs, lows, volume_colors, asset_dates,
+                        macd_values, macd_signal_values, macd_hist_values,
+                        rsi_values, stochrsi_k_values, stochrsi_d_values
+                    ]
+                    
+                    non_empty_series = [s for s in all_series if s]
+                    
+                    min_len_data_all = min(len(s) for s in non_empty_series) if non_empty_series else 0
+                    
+                    if min_len_data_all > 0:
+                        prices = prices[-min_len_data_all:]
+                        volumes = volumes[-min_len_data_all:]
+                        opens = opens[-min_len_data_all:]
+                        highs = highs[-min_len_data_all:]
+                        lows = lows[-min_len_data_all:]
+                        volume_colors = volume_colors[-min_len_data_all:]
+                        asset_dates = asset_dates[-min_len_data_all:]
+                        macd_values = macd_values[-min_len_data_all:]
+                        macd_signal_values = macd_signal_values[-min_len_data_all:]
+                        macd_hist_values = macd_hist_values[-min_len_data_all:]
+                        rsi_values = rsi_values[-min_len_data_all:]
+                        stochrsi_k_values = stochrsi_k_values[-min_len_data_all:]
+                        stochrsi_d_values = stochrsi_d_values[-min_len_data_all:]
+                        logger.info(f"DEBUG: {asset_name} - All data aligned to {min_len_data_all} points.")
+                    else:
+                        logger.warning(f"DEBUG: {asset_name} - No valid aligned data points after indicator calculation.")
+                        # Resetar tudo para vazio se não houver dados alinhados
+                        prices, volumes, opens, highs, lows, volume_colors, asset_dates = [],[],[],[],[],[],[]
+                        macd_values, macd_signal_values, macd_hist_values, rsi_values = [],[],[],[]
+                        stochrsi_k_values, stochrsi_d_values = [],[]
+
+                else:
+                    logger.warning(f"DEBUG: {asset_name} - No required OHLCV columns found, or history is empty after cleaning.")
+
+                avg_volume = sum(volumes) / len(volumes) if volumes else 0
+
+                # Estrutura correta para o frontend
+                data[asset_name] = {
+                    'name': asset_name.capitalize(),
+                    'symbol': symbol_yf if symbol_yf else symbol_gateio,
+                    'price_data': prices,
+                    'volume_data': volumes,
+                    'volume_colors': volume_colors,
+                    'open_data': opens,
+                    'high_data': highs,
+                    'low_data': lows,
+                    'volume_avg_formatted': format_volume(int(avg_volume)),
+                    'dates': asset_dates,
+                    'macd_data': macd_values,
+                    'macd_signal_data': macd_signal_values,
+                    'macd_hist_data': macd_hist_values,
+                    'rsi_data': rsi_values, 
+                    'stochrsi_k_data': stochrsi_k_values, 
+                    'stochrsi_d_data': stochrsi_d_values
+                }
+                logger.info(f"✅ {asset_name}: {len(prices)} points processed for /api/precos/{period}")
+
+            except Exception as e:
+                logger.error(f"❌ Error processing {asset_name} data in /api/precos/{period}: {e}", exc_info=True)
+                # Fallback com estrutura correta
+                data[asset_name] = {
+                    'name': asset_name.capitalize(),
+                    'symbol': symbol_yf if symbol_yf else symbol_gateio,
+                    'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [],
+                    'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'dates': [],
+                    'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [],
+                    'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []
+                }
+
+        # Encontrar datas comuns (usar a maior lista de datas disponível)
+        all_asset_dates_lists = [asset_data['dates'] for asset_data in data.values() if asset_data['dates']]
+        if all_asset_dates_lists:
+            # Pega a lista de dates do BTC para ser o principal, se houver
+            common_dates = data.get('btc', {}).get('dates', [])
+            if not common_dates:
+                common_dates = max(all_asset_dates_lists, key=len)
+        else:
+            common_dates = []
+
+        response = {
+            "period": period,
+            "data_points": len(common_dates),
+            "dates": common_dates,
+            "assets": data,
+            "timestamp": datetime.now().isoformat(),
+            "status": "success"
+        }
+        logger.info(f"✅ Response prepared for /api/precos/{period}: {len(common_dates)} data points for {len(data)} assets")
+        return response
+    except Exception as e:
+        logger.error(f"❌ Critical error fetching financial data for {period}: {e}", exc_info=True)
+        return {
+            "error": f"Failed to fetch financial data for {period}: {str(e)}",
+            "period": period,
+            "data_points": 0,
+            "dates": [],
+            "assets": {
+                'gold': {'name': 'Gold', 'symbol': 'GC=F', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'rsi_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []}
+            },
+            "timestamp": datetime.now().isoformat(),
+            "status": "error"
+        }
+
+@app.get("/api/sentiment")
+def get_market_sentiment():
+    """Endpoint REST para sentimento de mercado em tempo real do Gate.io (do dashboard)"""
+    try:
+        current_time = datetime.now()
+        is_real_data = sentiment_cache["websocket_connected"]
+
+        btc_buyers_pct = sentiment_cache["btc_sentiment"]["buyers"]
+        paxg_buyers_pct = sentiment_cache["paxg_sentiment"]["buyers"]
+
+        estimated_btc_volume_24h_display = sentiment_cache["btc_sentiment"]["volume_24h"]
+
+        if btc_buyers_pct > 80:
+            btc_sentiment_interpretation = "EXTREMELY_BULLISH"
+            btc_strength = "VERY_STRONG"
+            btc_recommendation = "Strong bullish momentum - consider long positions"
+        elif btc_buyers_pct > 65:
+            btc_sentiment_interpretation = "BULLISH"
+            btc_strength = "STRONG"
+            btc_recommendation = "Bullish sentiment - favorable for longs"
+        elif btc_buyers_pct > 35:
+            btc_sentiment_interpretation = "NEUTRAL"
+            btc_strength = "MODERATE"
+            btc_recommendation = "Mixed signals - wait for clearer direction"
+        elif btc_buyers_pct > 20:
+            btc_sentiment_interpretation = "BEARISH"
+            btc_strength = "STRONG"
+            btc_recommendation = "Bearish sentiment - consider short positions"
+        else:
+            btc_sentiment_interpretation = "EXTREMELY_BEARISH"
+            btc_strength = "VERY_STRONG"
+            btc_recommendation = "Strong bearish momentum - avoid longs"
+
+        if paxg_buyers_pct > 60:
+            paxg_sentiment_interpretation = "BULLISH"
+            paxg_strength = "MODERATE"
+        elif paxg_buyers_pct < 40:
+            paxg_sentiment_interpretation = "BEARISH"
+            paxg_strength = "MODERATE"
+        else:
+            paxg_sentiment_interpretation = "NEUTRAL"
+            paxg_strength = "WEAK"
+
+        response = {
+            "timestamp": current_time.isoformat(),
+            "status": "🟢 LIVE" if is_real_data else "🔴 API_FAIL",
+            "data_source": "Gate.io Real API" if is_real_data else "Gate.io API Failed",
+            "btc": {
+                "buyers": round(sentiment_cache["btc_sentiment"]["buyers"], 2),
+                "sellers": round(sentiment_cache["btc_sentiment"]["sellers"], 2),
+                "total_volume": round(sentiment_cache["btc_sentiment"]["total_bids"] + sentiment_cache["btc_sentiment"]["total_asks"], 2),
+                "trend": sentiment_cache["btc_sentiment"]["trend"],
+                "currency_pair": "BTC_USDT",
+                "bid_ask_ratio": sentiment_cache["btc_sentiment"]["bid_ask_ratio"]
+            },
+            "paxg": {
+                "buyers": round(sentiment_cache["paxg_sentiment"]["buyers"], 2),
+                "sellers": round(sentiment_cache["paxg_sentiment"]["sellers"], 2),
+                "trend": sentiment_cache["paxg_sentiment"]["trend"],
+                "bid_ask_ratio": sentiment_cache["paxg_sentiment"]["bid_ask_ratio"],
+                "total_volume": round(sentiment_cache["paxg_sentiment"]["total_bids"] + sentiment_cache["paxg_sentiment"]["total_asks"], 2)
+            },
+            "market_mood": sentiment_cache["market_mood"],
+            "fear_greed_index": sentiment_cache["fear_greed_index"],
+            "volume_24h": estimated_btc_volume_24h_display,
+            "websocket_status": {
+                "connected": True,
+                "real_data": is_real_data,
+                "api_status": "connected" if is_real_data else "failed"
+            }
+        }
+        return response
+
+    except Exception as e:
+        logger.error(f"❌ Error getting market sentiment: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting market sentiment: {str(e)}")
+
+@app.websocket("/ws/sentiment")
+async def websocket_endpoint_sentiment(websocket: WebSocket):
+    """WebSocket para sentimento de mercado"""
+    await websocket.accept()
+    active_sentiment_websocket_connections.append(websocket)
+    logger.info(f"✅ Cliente WebSocket conectado (sentiment): {websocket.client}")
+    
+    try:
+        # Enviar dados iniciais
+        initial_data = await get_market_sentiment_websocket_data()
+        await websocket.send_json(initial_data)
+        
+        while True:
+            # Heartbeat para manter conexão viva
+            try:
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                if message == "ping":
+                    await websocket.send_text("pong")
+            except asyncio.TimeoutError:
+                # Enviar ping se não receber mensagem em 30s
+                try:
+                    await websocket.send_text("ping")
+                except:
+                    break
+            except Exception as e:
+                logger.warning(f"Erro na comunicação WebSocket sentiment: {e}")
+                break
+                
+    except Exception as e:
+        logger.error(f"❌ Erro no WebSocket sentiment: {e}")
+    finally:
+        # Cleanup
+        if websocket in active_sentiment_websocket_connections:
+            active_sentiment_websocket_connections.remove(websocket)
+        logger.info(f"🔌 Cliente WebSocket desconectado (sentiment): {websocket.client}")
+
+@app.get("/api/calendar")
+def get_economic_calendar():
+    """Endpoint para calendário econômico FRED completo (do bot)"""
+    try:
+        if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
+            bot_fred_calendar_instance = real_trading_bot.analyzer.fred_calendar
+            if real_trading_bot.environment == 'simulate_backtest' and hasattr(bot_fred_calendar_instance, 'datetime_now_override'):
+                bot_fred_calendar_instance.datetime_now_override = datetime.now()
+            
+            bot_fred_calendar_instance.get_upcoming_releases(days_ahead=14)
+            
+            upcoming_events = [e.to_dict() for e in bot_fred_calendar_instance.cache["upcoming_events"]]
+            pre_event_alerts = bot_fred_calendar_instance.generate_pre_event_alerts(hours_before=48)
+
+            today = datetime.now().date()
+            today_events = [
+                e for e in upcoming_events
+                if "date" in e and datetime.fromisoformat(str(e["date"])).date() == today
+            ]
+
+            critical_events = sorted(
+                [e for e e in upcoming_events if e.get("importance") == "HIGH"],
+                key=lambda x: x.get("impact_score", 0), reverse=True
+            )[:10]
+            
+            fred_api_status = "active" if bot_fred_calendar_instance.api_key else "inactive_no_key"
+
+        else:
+            logger.warning("FRED Calendar is not available in the trading bot. Returning empty data.")
+            upcoming_events = []
+            pre_event_alerts = []
+            today_events = []
+            critical_events = []
+            fred_api_status = "inactive_no_bot"
+
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "status": "active",
+            "fred_api_status": fred_api_status,
+            "data_freshness": real_trading_bot.analyzer.last_fred_update.isoformat() if real_trading_bot and real_trading_bot.analyzer.last_fred_update else None,
+            "total_events": len(upcoming_events),
+            "upcoming_events": upcoming_events[:20],
+            "critical_events": critical_events,
+            "today_events": today_events,
+            "pre_event_alerts": pre_event_alerts,
+            "summary": {
+                "total_upcoming": len(upcoming_events),
+                "high_impact_events": len([e for e in upcoming_events if e.get("importance") == "HIGH"]),
+                "medium_impact_events": len([e for e in upcoming_events if e.get("importance") == "MEDIUM"]),
+                "low_impact_events": len([e for e in upcoming_events if e.get("importance") == "LOW"]),
+                "events_today": len(today_events),
+                "pre_event_alerts": len(pre_event_alerts)
+            },
+            "statistics": {
+                "total_events_processed": len(upcoming_events),
+                "avg_impact_score": round(sum([e.get("impact_score", 0) for e in upcoming_events]) / max(len(upcoming_events), 1), 1),
+                "categories": {
+                    "EMPLOYMENT": len([e for e in upcoming_events if e.get("category") == "EMPLOYMENT"]),
+                    "INFLATION": len([e for e in upcoming_events if e.get("category") == "INFLATION"]),
+                    "MONETARY_POLICY": len([e for e in upcoming_events if e.get("category") == "MONETARY_POLICY"]),
+                    "GROWTH": len([e for e in upcoming_events if e.get("category") == "GROWTH"]),
+                    "CONSUMPTION": len([e for e in upcoming_events if e.get("category") == "CONSUMPTION"]),
+                    "MANUFACTURING": len([e for e in upcoming_events if e.get("category") == "MANUFACTURING"]),
+                    "HOUSING": len([e for e in upcoming_events if e.get("category") == "HOUSING"]),
+                    "TRADE": len([e for e in upcoming_events if e.get("category") == "TRADE"]),
+                    "GENERAL": len([e for e in upcoming_events if e.get("category") == "GENERAL"])
+                }
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting economic calendar: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting economic calendar: {str(e)}")
+
+@app.get("/api/events")
+def get_upcoming_events():
+    """Endpoint para eventos econômicos próximos (do bot)"""
+    try:
+        if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
+            bot_fred_calendar_instance = real_trading_bot.analyzer.fred_calendar
+            if real_trading_bot.environment == 'simulate_backtest' and hasattr(bot_fred_calendar_instance, 'datetime_now_override'):
+                bot_fred_calendar_instance.datetime_now_override = datetime.now()
+
+            bot_fred_calendar_instance.get_upcoming_releases(days_ahead=14)
+            upcoming_events_raw = bot_fred_calendar_instance.cache["upcoming_events"]
+        else:
+            logger.warning("FRED Calendar not available in bot. Providing empty events list.")
+            upcoming_events_raw = []
+
+        current_time = datetime.now()
+        
+        next_week_events = []
+        for event_obj in upcoming_events_raw:
+            try:
+                event = event_obj.to_dict()
+                event_date = datetime.fromisoformat(event["date"])
+                days_until = (event_date.date() - current_time.date()).days
+                if 0 <= days_until <= 7:
+                    event_copy = event.copy()
+                    event_copy["days_until"] = days_until
+                    event_copy["formatted_date"] = event_date.strftime("%d/%m/%Y %H:%M")
+                    next_week_events.append(event_copy)
+            except Exception as e:
+                logger.warning(f"Error processing upcoming event: {e}. Event data: {event_obj}. Skipping.")
+                continue
+        
+        next_week_events.sort(key=lambda x: x["date"])
+        
+        return {
+            "timestamp": current_time.isoformat(),
+            "status": "active",
+            "events_count": len(next_week_events),
+            "period": "next_7_days",
+            "upcoming_events": next_week_events[:20],
+            "high_impact_today": len([e for e in next_week_events if e.get("days_until") == 0 and e.get("importance") == "HIGH"]),
+            "critical_this_week": len([e for e in next_week_events if e.get("importance") == "HIGH"])
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting upcoming events: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting upcoming events: {str(e)}")
+
+@app.get("/api/alerts")
+def get_all_alerts():
+    """Endpoint para todos os tipos de alertas"""
+    try:
+        all_alerts = cache["alerts"].copy()
+        
+        if real_trading_bot and real_trading_bot.analyzer.fred_calendar:
+            fred_alerts_from_bot = real_trading_bot.analyzer.fred_calendar.generate_pre_event_alerts(hours_before=48)
+            for alert in fred_alerts_from_bot:
+                if alert not in all_alerts:
+                    all_alerts.append(alert)
+        
+        angular_alerts = []
+        if cache["angular_data"]:
+            patterns = analyze_angular_patterns(cache["angular_data"])
+            for pattern in patterns.get("patterns", []):
+                angular_alert = {
+                    "type": "ANGULAR_PATTERN",
+                    "title": f"📐 {pattern['title']}",
+                    "message": pattern["description"],
+                    "severity": pattern["severity"],
+                    "timestamp": datetime.now().isoformat(),
+                    "pattern_type": pattern["type"],
+                    "confidence": pattern["confidence"]
+                }
+                angular_alerts.append(angular_alert)
+        
+        all_alerts.extend(angular_alerts)
+        
+        all_alerts.extend(list(macd_detector.crossover_history))
+
+        def alert_priority(alert):
+            severity_weight = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+            return severity_weight.get(alert.get("severity", "LOW"), 1)
+        
+        all_alerts.sort(key=lambda x: (alert_priority(x), x.get("timestamp", "")), reverse=True)
+        
+        all_alerts = all_alerts[:50]
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "status": "active",
+            "total_alerts": len(all_alerts),
+            "alerts": all_alerts,
+            "alerts_by_type": {
+                "angular_patterns": len([a for a in all_alerts if a.get("type") == "ANGULAR_PATTERN"]),
+                "fred_events": len([a for a in all_alerts if a.get("type") == "PRE_EVENT_ALERT"]),
+                "trading_signals": len([a for a in all_alerts if a.get("type", "").startswith("BTC_") or a.get("type", "").startswith("TRADING_") or a.get("type") == "MACD_CROSSOVER"]),
+                "macd_crossovers": len([a for a in all_alerts if a.get("type") == "MACD_CROSSOVER"]),
+                "system_alerts": len([a for a in all_alerts if a.get("type") == "SYSTEM"])
+            },
+            "alerts_by_severity": {
+                "HIGH": len([a for a in all_alerts if a.get("severity") == "HIGH"]),
+                "MEDIUM": len([a for a in all_alerts if a.get("severity") == "MEDIUM"]),
+                "LOW": len([a for a in all_alerts if a.get("severity") == "LOW"])
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting alerts: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting alerts: {str(e)}")
+
+@app.get("/api/backtest-recommendations")
+def get_backtest_recommendations():
+    """Endpoint para recomendações de backtest (do dashboard)"""
+    try:
+        current_time = datetime.now()
+        last_update = backtest_recommendations_cache["last_update"]
+        
+        if (last_update is None or 
+            (current_time - datetime.fromisoformat(last_update)).total_seconds() >= 
+            backtest_recommendations_cache["update_interval_minutes"] * 60):
+            
+            logger.info("🔄 Updating backtest recommendations...")
+            run_backtest_periodically()
+        
+        recommendations = backtest_recommendations_cache["recommendations"]
+        
+        return {
+            "timestamp": current_time.isoformat(),
+            "status": "active",
+            "total_recommendations": len(recommendations),
+            "recommendations": recommendations,
+            "last_backtest_update": backtest_recommendations_cache["last_update"],
+            "next_update_in_minutes": backtest_recommendations_cache["update_interval_minutes"],
+            "performance_summary": {
+                "avg_success_rate": round(sum([r["success_rate"] for r in recommendations]) / max(len(recommendations), 1), 3),
+                "avg_confidence": round(sum([r["confidence"] for r in recommendations]) / max(len(recommendations), 1), 3),
+                "long_signals": len([r for r in recommendations if r.get("trade_type") == "LONG"]),
+                "short_signals": len([r for r in recommendations if r.get("trade_type") == "SHORT"]),
+                "high_confidence": len([r for r in recommendations if r.get("confidence", 0) > 0.8])
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting backtest recommendations: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting backtest recommendations: {str(e)}")
+
+# ===============================================================================
+# TRADING BOT API ENDPOINTS
+# ===============================================================================
+
+@app.get("/api/trading-bot/status")
+def get_trading_bot_status():
+    """Endpoint para status do trading bot - ATUALIZADO COM AMBIENTE"""
+    global real_trading_bot, current_bot_environment
+    
+    try:
+        if real_trading_bot is None:
+            logger.warning("⚠️ Bot não inicializado. Retornando status de erro e dados fallback.")
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "status": "bot_initialization_failed",
+                "error": "Trading bot instance is None. Check startup logs.",
+                "environment": current_bot_environment.upper(),
+                "running": False,
+                "bot_info": {
+                    "environment": current_bot_environment.upper(),
+                    "strategy": "RSI_MACD_COMBINED",
+                    "running": False,
+                    "symbols": ["BTC_USDT", "ETH_USDT"],
+                    "error": "Bot not initialized"
+                },
+                "performance": {
+                    "start_balance": 0, "current_balance": 0, "total_trades": 0,
+                    "winning_trades": 0, "total_pnl": 0, "daily_pnl": 0,
+                    "max_drawdown": 0, "win_rate": 0, "roi_percentage": 0,
+                    "strategy_name": "RSI_MACD_COMBINED", 
+                    "environment": current_bot_environment.upper(),
+                    "last_update": datetime.now().isoformat()
+                },
+                "testnet_performance": {"balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0, "win_rate": 0.0, "total_trades": 0, "winning_trades": 0, "daily_pnl": 0.0, "daily_trades": 0},
+                "live_performance": {"balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0, "win_rate": 0.0, "total_trades": 0, "winning_trades": 0, "daily_pnl": 0.0, "daily_trades": 0},
+                "active_positions": [], "recent_signals": [],
+                "daily_stats": {"trades_today": 0, "max_daily_trades": 0, "daily_pnl": 0, "date": datetime.now().date().isoformat()}
+            }
+
+        try:
+            status_report = real_trading_bot.get_detailed_ai_status()
+            
+            # Adicionar informações de ambiente ao status
+            status_report["environment_info"] = {
+                "current": current_bot_environment.upper(),
+                "actual_bot_environment": real_trading_bot.environment.upper(),
+                "can_change": not real_trading_bot.running,
+                "is_live": current_bot_environment == "live",
+                "risk_config": RISK_CONFIG.get(current_bot_environment, {}),
+                "environment_matched": current_bot_environment == real_trading_bot.environment
+            }
+
+            status_report["debug_info"] = {
+                "api_connectivity": "attempting_connection",
+                "last_balance_check": datetime.now().isoformat(),
+                "environment_config": {
+                    "dashboard_environment": current_bot_environment,
+                    "bot_environment": real_trading_bot.environment,
+                    "has_api_key": bool(API_KEY),
+                    "has_secret": bool(SECRET),
+                    "base_urls": real_trading_bot.urls
+                }
+            }
+            
+            return status_report
+            
+        except Exception as status_error:
+            logger.error(f"❌ Erro ao obter status do bot real: {status_error}", exc_info=True)
+            
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "status": "partial_error",
+                "error": str(status_error),
+                "environment": current_bot_environment.upper(),
+                "bot_info": {
+                    "environment": current_bot_environment.upper(),
+                    "strategy": "RSI_MACD_COMBINED",
+                    "running": real_trading_bot.running,
+                    "symbols": TRADING_SYMBOLS
+                },
+                "performance": real_trading_bot.performance if real_trading_bot else {},
+                # Adicionar performance de testnet/live como fallback aqui também
+                "testnet_performance": real_trading_bot.testnet_performance if real_trading_bot and hasattr(real_trading_bot, 'testnet_performance') else {"balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0, "win_rate": 0.0, "total_trades": 0, "winning_trades": 0, "daily_pnl": 0.0, "daily_trades": 0},
+                "live_performance": real_trading_bot.live_performance if real_trading_bot and hasattr(real_trading_bot, 'live_performance') else {"balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0, "win_rate": 0.0, "total_trades": 0, "winning_trades": 0, "daily_pnl": 0.0, "daily_trades": 0},
+                "active_positions": [],
+                "recent_signals": [],
+                "environment_info": {
+                    "current": current_bot_environment.upper(),
+                    "can_change": not real_trading_bot.running,
+                    "is_live": current_bot_environment == "live"
+                },
+                "debug_info": {
+                    "error_occurred": True,
+                    "error_message": str(status_error)
+                }
+            }
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico no endpoint de status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Critical error in trading bot status: {str(e)}")
+
+
+@app.get("/api/trading-bot/signals")
+def get_active_signals():
+    """Endpoint para sinais ativos do bot - VERSÃO CORRIGIDA"""
+    global real_trading_bot
+    
+    try:
+        if real_trading_bot is None:
+            logger.warning("⚠️ Bot não inicializado para sinais. Retornando dados simulados...")
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "status": "bot_not_initialized",
+                "total_signals": 0,
+                "active_signals": 0,
+                "expired_signals": 0,
+                "signals": [],
+                "signals_summary": {
+                    "long_signals": 0,
+                    "short_signals": 0,
+                    "high_confidence": 0,
+                    "medium_confidence": 0,
+                    "low_confidence": 0
+                },
+                "debug_info": {
+                    "bot_initialized": False,
+                    "environment": ENVIRONMENT.upper()
+                }
+            }
+
+        signals = []
+        try:
+            signals = [signal.to_dict() for signal in real_trading_bot.signals_history]
+            logger.debug(f"Fetched {len(signals)} signals from real bot.")
+        except Exception as signals_error:
+            logger.error(f"❌ Erro ao obter sinais do bot real: {signals_error}", exc_info=True)
+            signals = []
+        
+        if not signals:
+            logger.warning("No real signals from bot, generating simulated signals for display.")
+            for symbol in TRADING_SYMBOLS:
+                simulated_signal = {
+                    "symbol": symbol,
+                    "action": random.choice(["BUY", "SELL", "HOLD"]),
+                    "final_confidence": round(random.uniform(0.6, 0.9), 3),
+                    "ai_probability": round(random.uniform(0.5, 0.9), 3),
+                    "signal_type": "LONG" if random.random() > 0.5 else "SHORT",
+                    "description": f"Simulado: Sinal forte detectado para {symbol}",
+                    "entry_price": round(real_trading_bot.get_current_price(symbol), 2),
+                    "timestamp": datetime.now().isoformat(),
+                    "environment": ENVIRONMENT.upper(),
+                    "status": "SIMULATED"
+                }
+                signals.append(simulated_signal)
+        
+        valid_signals = [s for s in signals if s.get('action') != 'HOLD']
+        
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "total_signals": len(signals),
+            "active_signals": len(valid_signals),
+            "expired_signals": len(signals) - len(valid_signals),
+            "signals": valid_signals[:10],
+            "signals_summary": {
+                "long_signals": len([s for s in valid_signals if s.get("action") == "BUY"]),
+                "short_signals": len([s for s in valid_signals if s.get("action") == "SELL"]),
+                "high_confidence": len([s for s in valid_signals if s.get("final_confidence", 0) > 0.8]),
+                "medium_confidence": len([s for s in valid_signals if 0.6 <= s.get("final_confidence", 0) <= 0.8]),
+                "low_confidence": len([s for s in valid_signals if s.get("final_confidence", 0) < 0.6])
+            },
+            "debug_info": {
+                "bot_initialized": True,
+                "bot_running": real_trading_bot.running,
+                "environment": ENVIRONMENT.upper(),
+                "signals_source": "real_bot" if real_trading_bot and real_trading_bot.signals_history else "simulated"
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Erro ao obter sinais ativos: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error getting active signals: {str(e)}")
+
+
+@app.get("/api/trading-bot/test-connection")
+def test_bot_connection():
+    """Endpoint para testar conectividade do bot"""
+    global real_trading_bot
+    
+    try:
+        connection_results = {
+            "timestamp": datetime.now().isoformat(),
+            "environment": ENVIRONMENT.upper(),
+            "tests": {}
+        }
+        
+        connection_results["tests"]["credentials"] = {
+            "api_key_configured": bool(API_KEY and len(API_KEY) > 10),
+            "secret_configured": bool(SECRET and len(SECRET) > 10),
+            "environment_set": bool(ENVIRONMENT)
+        }
+        
+        if real_trading_bot is None:
+            connection_results["tests"]["bot_initialization"] = {
+                "status": "failed",
+                "error": "Bot is None. Check startup logs."
+            }
+        else:
+            connection_results["tests"]["bot_initialization"] = {
+                "status": "success"
+            }
+        
+        if real_trading_bot:
+            try:
+                balance = real_trading_bot.get_account_balance()
+                connection_results["tests"]["balance_retrieval"] = {
+                    "status": "success" if balance > 0 else "zero_balance",
+                    "balance": balance,
+                    "message": f"Saldo obtido: ${balance}"
+                }
+            except Exception as e:
+                connection_results["tests"]["balance_retrieval"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        
+        if real_trading_bot:
+            try:
+                btc_price = real_trading_bot.get_current_price("BTC_USDT")
+                connection_results["tests"]["price_retrieval"] = {
+                    "status": "success" if btc_price > 0 else "failed",
+                    "value": btc_price,
+                    "message": f"Preço BTC: ${btc_price}"
+                }
+            except Exception as e:
+                connection_results["tests"]["price_retrieval"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        
+        if real_trading_bot.analyzer.fred_calendar.api_key:
+            try:
+                fred_events = real_trading_bot.analyzer.fred_calendar.get_upcoming_releases(days_ahead=1)
+                diagnostics["connectivity_tests"]["fred_api_bot"] = {
+                    "status": "success" if fred_events else "empty_or_failed",
+                    "events_count": len(fred_events)
+                }
+            except Exception as e:
+                diagnostics["connectivity_tests"]["fred_api_bot"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        else:
+            diagnostics["connectivity_tests"]["fred_api_bot"] = {"status": "skipped", "message": "FRED_API_KEY not configured for bot."}
+
+        if (real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key and real_trading_bot.analyzer.sentiment_analyzer.cryptopanic_api_key != "DUMMY_KEY_CRYPTOPANIC") or (real_trading_bot.analyzer.sentiment_analyzer.news_api_key and real_trading_bot.analyzer.sentiment_analyzer.news_api_key != "DUMMY_KEY_NEWSAPI"):
+            try:
+                btc_sentiment = real_trading_bot.analyzer.sentiment_analyzer.get_crypto_news_sentiment("BTC_USDT")
+                diagnostics["connectivity_tests"]["sentiment_apis_bot"] = {
+                    "status": "success" if btc_sentiment != 0.5 else "neutral_or_failed_fetch",
+                    "btc_sentiment_score": btc_sentiment
+                }
+            except Exception as e:
+                diagnostics["connectivity_tests"]["sentiment_apis_bot"] = {
+                    "status": "failed",
+                    "error": str(e)
+                }
+        else:
+            diagnostics["connectivity_tests"]["sentiment_apis_bot"] = {"status": "skipped", "message": "NEWS_API_KEY/CRYPTOPANIC_API_KEY not configured for bot."}
+    # O 'else' abaixo é para o 'if real_trading_bot:' inicial da função.
+    # Ele deve estar no mesmo nível do 'if real_trading_bot:'.
+    else: 
+        diagnostics["recommendations"].extend([
+            "Check if API_KEY and SECRET are configured in .env file",
+            "Verify API key permissions on Gate.io",
+            "Restart the application after fixing credentials",
+            "Ensure FRED_API_KEY, NEWS_API_KEY, CRYPTOPANIC_API_KEY are configured in config.py or .env for the bot's full functionality."
+        ])
+    
+    return diagnostics
+    
+@app.websocket("/ws/rsi-macd")
+async def websocket_rsi_macd_endpoint(websocket: WebSocket):
+    """WebSocket específico para dados RSI+MACD do card"""
+    await websocket.accept()
+    active_rsi_macd_websocket_connections.append(websocket)
+    logger.info(f"RSI+MACD WebSocket client connected: {websocket.client}")
+    
+    try:
+        initial_data = await get_rsi_macd_websocket_data()
+        await websocket.send_json(initial_data)
+        logger.info(f"Sent initial RSI+MACD data to client {websocket.client}")
+        
+        while True:
+            try:
+                # Heartbeat para manter conexão viva
+                message = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                if message == "ping":
+                    await websocket.send_text("pong")
+                # Enviar dados atualizados periodicamente, ou se a mensagem não for 'ping'
+                updated_data = await get_rsi_macd_websocket_data()
+                await websocket.send_json(updated_data)
+                
+            except asyncio.TimeoutError:
+                # Se não receber mensagem em 30s, tenta enviar dados atualizados
+                updated_data = await get_rsi_macd_websocket_data()
+                await websocket.send_json(updated_data)
+                
+            except Exception as e:
+                logger.warning(f"Erro na comunicação WebSocket RSI+MACD: {e}")
+                break # Sai do loop se houver erro de comunicação
+                
+    except WebSocketDisconnect as e:
+        if websocket in active_rsi_macd_websocket_connections:
+            active_rsi_macd_websocket_connections.remove(websocket)
+        logger.info(f"RSI+MACD WebSocket client disconnected: {websocket.client}")
+    except Exception as e:
+        if websocket in active_rsi_macd_websocket_connections:
+            active_rsi_macd_websocket_connections.remove(websocket)
+        logger.error(f"RSI+MACD WebSocket error: {e}", exc_info=True)
+
+async def get_rsi_macd_websocket_data():
+    """Gera dados para WebSocket RSI+MACD"""
+    global real_trading_bot
+    
+    try:
+        current_time = datetime.now()
+        
+        # Tenta obter dados reais do cache de indicadores em tempo real
+        btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
+        
+        rsi_value = btc_ohlcv_cache.get("rsi_data", {}).get("last_value", 0)
+        
+        macd_data = btc_ohlcv_cache.get("macd_data", {})
+        macd_value = macd_data.get("macd", [])[-1] if macd_data.get("macd") else 0
+        signal_value = macd_data.get("signal", [])[-1] if macd_data.get("signal") else 0
+        histogram = macd_data.get("histogram", [])[-1] if macd_data.get("histogram") else 0
+
+        # Novos dados do STOCHRSI
+        stochrsi_k_val = btc_ohlcv_cache.get("stochrsi_data", {}).get("k_value", 0)
+        stochrsi_d_val = btc_ohlcv_cache.get("stochrsi_data", {}).get("d_value", 0)
+
+        # Angulos (do cache, se existirem)
+        rsi_angle = btc_ohlcv_cache.get("rsi_data", {}).get("angle", 0)
+        macd_angle = btc_ohlcv_cache.get("macd_angle_data", {}).get("macd_angle", 0)
+        signal_angle = btc_ohlcv_cache.get("macd_angle_data", {}).get("signal_angle", 0)
+        
+        # Sinal (determinado no backend, ou fallback aqui)
+        signal_type = macd_data.get("trend", "HOLD") if macd_data.get("trend") else "HOLD"
+        
+        data_source = "real_time_indicators"
+        if not btc_ohlcv_cache.get("websocket_connected"):
+            data_source = "websocket_disconnected"
+
+        # Lógica de sinal para exibição (corrigida a sintaxe Python)
+        macd_hist_threshold_display = 0.0005
+        rsi_middle_threshold_display = 5 
+
+        if histogram > macd_hist_threshold_display and rsi_value < 70 and abs(rsi_value - 50) > rsi_middle_threshold_display:
+            signal_type = "BUY"
+        elif histogram < -macd_hist_threshold_display and rsi_value > 30 and abs(rsi_value - 50) > rsi_middle_threshold_display:
+            signal_type = "SELL"
+        else:
+            signal_type = "HOLD"
+          
+        # Considerar STOCHRSI para o sinal combinado (corrigida a sintaxe Python)
+        if stochrsi_k_val > stochrsi_d_val and stochrsi_k_val < 80 and stochrsi_d_val < 80 and signal_type == "BUY":
+            signal_type = "STRONG_BUY"
+        elif stochrsi_k_val < stochrsi_d_val and stochrsi_k_val > 20 and stochrsi_d_val > 20 and signal_type == "SELL":
+            signal_type = "STRONG_SELL"
+
+
+        rsi_zone = "oversold" if rsi_value < 30 else ("overbought" if rsi_value > 70 else "neutral")
+        rsi_trend = btc_ohlcv_cache.get("rsi_data", {}).get("trend", "NEUTRAL") 
+        rsi_confidence = 85 if rsi_zone in ["oversold", "overbought"] else 45
+        macd_strength = min(abs(histogram) * 15, 90)
+        combined_confidence = round((rsi_confidence + macd_strength) / 2, 0) 
+
+        signal_color = "#FFD700"
+        if "BUY" in signal_type: signal_color = "#00ff00" # Ajustado para incluir STRONG_BUY
+        if "SELL" in signal_type: signal_color = "#ff0000" # Ajustado para incluir STRONG_SELL
+
+
+        return {
+            "type": "rsi_macd_update",
+            "timestamp": current_time.isoformat(),
+            "symbol": "BTC_USDT",
+            "environment": ENVIRONMENT.upper(),
+            "data_source": data_source,
+            "rsi": {
+                "value": rsi_value,
+                "zone": rsi_zone,
+                "trend": rsi_trend,
+                "confidence": rsi_confidence,
+                "color": "#ff4444" if rsi_zone == "overbought" else "#44ff44" if rsi_zone == "oversold" else "#ffaa00",
+                "angle": rsi_angle
+            },
+            "macd": {
+                "macd": macd_value,
+                "signal": signal_value,
+                "histogram": histogram,
+                "trend": "bullish" if histogram > 0 else "bearish" if histogram < 0 else "neutral",
+                "strength": round(abs(histogram), 2)
+            },
+            "macd_angle_data": { 
+                "macd_angle": macd_angle,
+                "signal_angle": signal_angle,
+            },
+            "stochrsi": { 
+                "k_value": stochrsi_k_val,
+                "d_value": stochrsi_d_val
+            },
+            "combined": {
+                "confidence": combined_confidence,
+                "signal_type": signal_type,
+                "signal_color": signal_color,
+                "recommendation": f"{signal_type.replace('_', ' ').title()} - Confiança: {combined_confidence}%"
+            },
+            "volume": {
+                "confirmation": random.choice([True, False]),
+                "status": random.choice(["Alto", "Médio", "Baixo"])
+            },
+            "additional": {
+                "risk_reward": round(random.uniform(1.2, 3.5), 1),
+                "last_update": current_time.strftime("%H:%M:%S"),
+                "validity": "valid",
+                "bot_running": real_trading_bot.running if real_trading_bot else False
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Erro ao gerar dados WebSocket RSI+MACD: {e}", exc_info=True)
+        return {
+            "type": "rsi_macd_error",
+            "timestamp": datetime.now().isoformat(),
+            "symbol": "BTC_USDT",
+            "error": str(e),
+            "rsi": {"value": 0, "zone": "neutral", "trend": "flat", "angle": 0},
+            "macd": {"macd": 0, "signal": 0, "histogram": 0},
+            "macd_angle_data": {"macd_angle": 0, "signal_angle": 0},
+            "stochrsi": {"k_value": 0, "d_value": 0},
+            "combined": {"confidence": 0, "signal_type": "ERROR", "signal_color": "#FFD700"}
+        }
+
+
+async def broadcast_rsi_macd_updates():
+    """Envia atualizações periódicas para todos os clientes RSI+MACD conectados"""
+    while True:
+        try:
+            if active_rsi_macd_websocket_connections:
+                data = await get_rsi_macd_websocket_data()
+                
+                disconnected_clients = []
+                for connection in list(active_rsi_macd_websocket_connections):
+                    try:
+                        await connection.send_json(data)
+                    except Exception as e:
+                        logger.warning(f"Erro enviando dados RSI+MACD: {e}")
+                        disconnected_clients.append(connection)
+                
+                for client in disconnected_clients:
+                    if client in active_rsi_macd_websocket_connections:
+                        active_rsi_macd_websocket_connections.remove(client)
+            await asyncio.sleep(5)
+        except Exception as e:
+            logger.error(f"Error in RSI+MACD broadcast loop: {e}")
+            await asyncio.sleep(5)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Evento de encerramento da aplicação"""
+    global real_trading_bot
+
+    logger.info("🛑 Shutting down Trading Dashboard API...")
+    
+    if real_trading_bot and real_trading_bot.running:
+        real_trading_bot.stop()
+        
+    for ws in active_sentiment_websocket_connections:
+        try:
+            await ws.close()
+        except:
+            pass
+    
+    for ws in active_ohlcv_websocket_connections:
+        try:
+            await ws.close()
+        except:
+            pass
+
+    if hasattr(app.state, 'bot_executor') and app.state.bot_executor:
+        app.state.bot_executor.shutdown(wait=True)
+        logger.info("ThreadPoolExecutor for bot shut down.")
+
+    logger.info("✅ Shutdown completed successfully")
+
+# ===============================================================================
+# MAIN APPLICATION ENTRY POINT
+# ===============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("=" * 80)
+    print("🚀 TRADING DASHBOARD API v6.0 - COMPATIBLE")
+    print("=" * 80)
+    print(f"📝 Description: {SYSTEM_INFO['description']}")
+    print("🔧 Features:")
+    for feature in SYSTEM_INFO['features']:
+        print(f"   {feature}")
+    print("=" * 80)
+    print(f"🌐 Server starting on: http://{SERVER_CONFIG['host']}:{SERVER_CONFIG['port']}")
+    print(f"📚 API Documentation: http://{SERVER_CONFIG['host']}:{SERVER_CONFIG['port']}/docs")
+    print(f"🔍 ReDoc Documentation: http://{SERVER_CONFIG['host']}:{SERVER_CONFIG['port']}/redoc")
+    print("=" * 80)
+    print("🎯 Main Endpoints:")
+    print("   📊 Real-time data: /api/current")
+    print("   🎭 Market sentiment: /api/sentiment (+ WebSocket: /ws/sentiment)")
+    print("   📈 Real-time OHLCV + MACD: /api/macd/realtime/{asset} (+ WebSocket: /ws/ohlcv)")
+    print("   🤖 Trading bot: /api/trading-bot/*")
+    print("   📡 Backtest signals: /api/backtest-recommendations")
+    print("   📅 Economic calendar: /api/calendar")
+    print("   🚨 Alerts system: /api/alerts")
+    print("   ⚙️ System status: /api/status")
+    print("=" * 80)
+    print("⚠️  IMPORTANT NOTES:")
+    print("   • This is a demonstration/educational system")
+    print("   • Real Gate.io API integration for sentiment analysis (PAXG and FGI) and OHLCV")
+    print("   • FRED economic data is sourced from the REAL Trading Bot's FRED Calendar")
+    print("   • Market sentiment for BTC/ETH is aggregated by the REAL Trading Bot (NewsAPI, CryptoPanic)")
+    print("   • Trading bot is now REAL (fetches actual balance/positions and makes decisions)")
+    print("   • Not financial advice - use at your own risk")
+    print("=" * 80)
+    
+    # Run the application
+    uvicorn.run(
+        "radar-dash:app",
+        host=SERVER_CONFIG["host"],
+        port=SERVER_CONFIG["port"],
+        reload=SERVER_CONFIG["reload"],
+        log_level=SERVER_CONFIG["log_level"],
+        access_log=True
+    )

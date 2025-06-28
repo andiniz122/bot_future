@@ -326,7 +326,7 @@ const styles = {
   chartGrid: {
     height: '100%',
     display: 'grid',
-    gridTemplateRows: '2fr 1fr', // <-- Será ajustado para 3 linhas
+    gridTemplateRows: '2fr 1fr', 
     gap: '16px'
   },
   chartPanel: {
@@ -360,7 +360,7 @@ const styles = {
   },
   indicatorGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr', // <-- Será ajustado para 3 colunas
+    gridTemplateColumns: '1fr 1fr', 
     gap: '16px'
   },
   modal: {
@@ -436,7 +436,6 @@ const styles = {
 
 const BloombergDashboard = () => {
   // Define a URL base do seu backend AQUI!
-  // Use o IP público do seu servidor e a porta do FastAPI (8000)
   const API_BASE_URL = 'http://62.72.1.122:8000'; 
 
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -506,8 +505,8 @@ const BloombergDashboard = () => {
       macd_angle: 0,
       signal_angle: 0,
       signal: 'HOLD',
-      stochrsi_k: 0, // Novo: StochRSI %K
-      stochrsi_d: 0  // Novo: StochRSI %D
+      stochrsi_k: 0, 
+      stochrsi_d: 0 
     }
   });
 
@@ -536,20 +535,21 @@ const BloombergDashboard = () => {
         ml_model_accuracy: data.ml_model_accuracy || 0,
         ai_predictions: data.ai_predictions || 0,
         active_positions: data.active_positions || [],
-        total_pnl: data.total_pnl || 0,
-        roi_percentage: data.roi_percentage || 0,
-        win_rate: data.win_rate || 0,
-        total_trades: data.total_trades || 0,
+        total_pnl: data.total_pnl || 0, // Pode ser global total PnL
+        roi_percentage: data.roi_percentage || 0, // Pode ser global ROI
+        win_rate: data.win_rate || 0, // Pode ser global win rate
+        total_trades: data.total_trades || 0, // Pode ser global total trades
         ai_system_status: data.ai_system_status || prev.ai_system_status,
+        // CORREÇÃO: Usar os objetos testnet_performance e live_performance diretamente do data
         testnet: {
-          balance: data.testnet_performance?.balance || data.current_balance || 0,
-          total_pnl: data.testnet_performance?.total_pnl || data.total_pnl || 0,
-          roi_percentage: data.testnet_performance?.roi_percentage || data.roi_percentage || 0,
-          win_rate: data.testnet_performance?.win_rate || data.win_rate || 0,
-          total_trades: data.testnet_performance?.total_trades || data.total_trades || 0,
-          winning_trades: data.testnet_performance?.winning_trades || data.winning_trades || 0,
-          daily_pnl: data.testnet_performance?.daily_pnl || data.daily_pnl || 0,
-          daily_trades: data.testnet_performance?.daily_trades || data.daily_trades || 0
+          balance: data.testnet_performance?.balance || 0,
+          total_pnl: data.testnet_performance?.total_pnl || 0,
+          roi_percentage: data.testnet_performance?.roi_percentage || 0,
+          win_rate: data.testnet_performance?.win_rate || 0,
+          total_trades: data.testnet_performance?.total_trades || 0,
+          winning_trades: data.testnet_performance?.winning_trades || 0,
+          daily_pnl: data.testnet_performance?.daily_pnl || 0,
+          daily_trades: data.testnet_performance?.daily_trades || 0
         },
         live: {
           balance: data.live_performance?.balance || 0,
@@ -574,21 +574,13 @@ const BloombergDashboard = () => {
     try {
       console.log('🔄 Fetching market data from ' + `${API_BASE_URL}/api/current`);
       const response = await fetch(`${API_BASE_URL}/api/current`);
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Market data received:', data);
-        if (data.assets) {
-          setMarketData({ assets: data.assets });
-        }
-      } else {
-        console.error(`HTTP error fetching market data! status: ${response.status}`);
-        setMarketData({
-          assets: {
-            btc: { name: 'BTC/USD', current_price: 0, change: 0, change_percent: 0 },
-            gold: { name: 'GOLD', current_price: 0, change: 0, change_percent: 0 },
-            dxy: { name: 'DXY', current_price: 0, change: 0, change_percent: 0 }
-          }
-        });
+      if (!response.ok) {
+        throw new Error(`HTTP error fetching market data! status: ${response.status}`);
+      }
+      const data = await response.json();
+      console.log('✅ Market data received:', data);
+      if (data.assets) {
+        setMarketData({ assets: data.assets });
       }
     } catch (error) {
       console.error("❌ Failed to fetch market data:", error);
@@ -607,7 +599,7 @@ const BloombergDashboard = () => {
     try {
       console.log('🔄 Fetching technical indicators from ' + `${API_BASE_URL}/api/macd/realtime/btc`);
       const response = await fetch(`${API_BASE_URL}/api/macd/realtime/btc`);
-      if (!response.ok) { // Check if response is NOT ok
+      if (!response.ok) { 
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
@@ -616,16 +608,16 @@ const BloombergDashboard = () => {
       setRealtimeIndicators(prev => ({
         ...prev,
         btc: {
-          rsi: data.macd_data?.rsi?.value || data.rsi?.value || data.rsi_data?.last_value || 0,
+          rsi: data.rsi_data?.last_value || 0, // RSI data is now directly from rsi_data
           macd: (data.macd_data?.macd && data.macd_data.macd.length > 0 ? data.macd_data.macd[data.macd_data.macd.length - 1] : 0),
           macd_signal: (data.macd_data?.signal && data.macd_data.signal.length > 0 ? data.macd_data.signal[data.macd_data.signal.length - 1] : 0),
           macd_histogram: (data.macd_data?.histogram && data.macd_data.histogram.length > 0 ? data.macd_data.histogram[data.macd_data.histogram.length - 1] : 0),
-          signal: data.macd_data?.trend || data.signal || 'HOLD',
+          signal: data.macd_data?.trend || data.signal || 'HOLD', // Signal can come from macd_data or be a top-level field
           rsi_angle: data.rsi_data?.angle || 0,
           macd_angle: data.macd_angle_data?.macd_angle || 0,
           signal_angle: data.macd_angle_data?.signal_angle || 0,
-          stochrsi_k: data.stochrsi_data?.k_value || 0, // Puxa do endpoint /api/macd/realtime
-          stochrsi_d: data.stochrsi_data?.d_value || 0  // Puxa do endpoint /api/macd/realtime
+          stochrsi_k: data.stochrsi_data?.k_value || 0, 
+          stochrsi_d: data.stochrsi_data?.d_value || 0  
         }
       }));
     } catch (error) {
@@ -641,7 +633,7 @@ const BloombergDashboard = () => {
     try {
       console.log(`🔄 Fetching chart data from ${API_BASE_URL}/api/precos/${selectedPeriod}`);
       const response = await fetch(`${API_BASE_URL}/api/precos/${selectedPeriod}`);
-      if (!response.ok) { // Check if response is NOT ok
+      if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data = await response.json();
@@ -657,8 +649,13 @@ const BloombergDashboard = () => {
               macd: btcData.macd_data?.[index] || 0,
               macd_signal: btcData.macd_signal_data?.[index] || 0,
               macd_hist: btcData.macd_hist_data?.[index] || 0,
-              stochrsi_k: btcData.stochrsi_k_data?.[index] || 0, // Novo: StochRSI %K
-              stochrsi_d: btcData.stochrsi_d_data?.[index] || 0  // Novo: StochRSI %D
+              stochrsi_k: btcData.stochrsi_k_data?.[index] || 0, 
+              stochrsi_d: btcData.stochrsi_d_data?.[index] || 0,
+              // Adicionar valores fixos para as linhas de referência do RSI e StochRSI
+              rsi_line_70: 70, 
+              rsi_line_30: 30,
+              stochrsi_line_80: 80,
+              stochrsi_line_20: 20
           }));
 
           setChartData({
@@ -706,8 +703,8 @@ const BloombergDashboard = () => {
         sentimentWs.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                // Can update UI with sentiment data if needed, currently just for connection status
-            } catch (e) {
+            }
+            catch (e) {
                 console.error("Error parsing sentiment WS message:", e);
             }
         };
@@ -743,8 +740,8 @@ const BloombergDashboard = () => {
                             lastChartPoint.macd = data.macd_data?.macd?.[data.macd_data.macd.length - 1] || lastChartPoint.macd;
                             lastChartPoint.macd_signal = data.macd_data?.signal?.[data.macd_data.signal.length - 1] || lastChartPoint.macd_signal;
                             lastChartPoint.macd_hist = data.macd_data?.histogram?.[data.macd_data.histogram.length - 1] || lastChartPoint.macd_hist;
-                            lastChartPoint.stochrsi_k = data.stochrsi_data?.k_value || lastChartPoint.stochrsi_k; // Atualiza StochRSI K
-                            lastChartPoint.stochrsi_d = data.stochrsi_data?.d_value || lastChartPoint.stochrsi_d; // Atualiza StochRSI D
+                            lastChartPoint.stochrsi_k = data.stochrsi_data?.k_value || lastChartPoint.stochrsi_k; 
+                            lastChartPoint.stochrsi_d = data.stochrsi_data?.d_value || lastChartPoint.stochrsi_d; 
                         } else if (!lastChartPoint || newTime > lastChartPoint.time) {
                             updatedCombined.push({
                                 time: newTime,
@@ -754,21 +751,21 @@ const BloombergDashboard = () => {
                                 macd: data.macd_data?.macd?.[data.macd_data.macd.length - 1] || 0,
                                 macd_signal: data.macd_data?.signal?.[data.macd_data.signal.length - 1] || 0,
                                 macd_hist: data.macd_data?.histogram?.[data.macd_data.histogram.length - 1] || 0,
-                                stochrsi_k: data.stochrsi_data?.k_value || 0, // Adiciona StochRSI K
-                                stochrsi_d: data.stochrsi_data?.d_value || 0  // Adiciona StochRSI D
+                                stochrsi_k: data.stochrsi_data?.k_value || 0, 
+                                stochrsi_d: data.stochrsi_data?.d_value || 0  
                             });
-                            if (updatedCombined.length > 100) { 
-                                updatedCombined.shift();
+                            // Keep a reasonable number of points for display, e.g., for 5m interval, 120 points = 10 hours.
+                            if (updatedCombined.length > 120) { // Keep last 120 points for 10 hours (5m candles)
+                                updatedCombined.shift(); 
                             }
                         }
 
-                        // Update marketData for current price and calculate change
                         setMarketData(prev => {
                             const currentBtc = prev.assets.btc;
                             const prevPrice = currentBtc.current_price;
                             const newPrice = data.candle.close;
                             let change = newPrice - prevPrice;
-                            let changePercent = (prevPrice !== 0 && !isNaN(prevPrice)) ? (change / prevPrice) * 100 : 0;
+                            let changePercent = (prevPrice !== 0 && !isNaN(prevPrice) && isFinite(prevPrice)) ? (change / prevPrice) * 100 : 0;
                             
                             return {
                                 assets: {
@@ -791,7 +788,6 @@ const BloombergDashboard = () => {
                         };
                     });
                     
-                    // Also trigger update for sidebar indicators based on this stream
                     setRealtimeIndicators(prev => ({
                         ...prev,
                         btc: {
@@ -803,8 +799,8 @@ const BloombergDashboard = () => {
                             macd_angle: data.macd_angle_data?.macd_angle || 0,
                             signal_angle: data.macd_angle_data?.signal_angle || 0,
                             signal: data.macd_data?.trend || 'HOLD',
-                            stochrsi_k: data.stochrsi_data?.k_value || 0, // Puxa do WebSocket OHLCV
-                            stochrsi_d: data.stochrsi_data?.d_value || 0  // Puxa do WebSocket OHLCV
+                            stochrsi_k: data.stochrsi_data?.k_value || 0, 
+                            stochrsi_d: data.stochrsi_data?.d_value || 0  
                         }
                     }));
 
@@ -843,8 +839,8 @@ const BloombergDashboard = () => {
                             macd_angle: data.macd?.macd_angle || 0,
                             signal_angle: data.macd?.signal_angle || 0,
                             signal: data.combined?.signal_type || 'HOLD',
-                            stochrsi_k: data.stochrsi?.k_value || 0, // Puxa do WebSocket RSI/MACD
-                            stochrsi_d: data.stochrsi?.d_value || 0  // Puxa do WebSocket RSI/MACD
+                            stochrsi_k: data.stochrsi?.k_value || 0, 
+                            stochrsi_d: data.stochrsi?.d_value || 0  
                         }
                     }));
                 }
@@ -939,10 +935,10 @@ const BloombergDashboard = () => {
     fetchTechnicalIndicators();
     fetchChartData();
     
-    const statusInterval = setInterval(fetchBotStatus, 10000); // Poll bot status every 10s
-    const marketInterval = setInterval(fetchMarketData, 30000); // Poll market data every 30s
-    const indicatorsInterval = setInterval(fetchTechnicalIndicators, 60000); // Poll every 60s
-    const chartInterval = setInterval(fetchChartData, 120000); // Poll every 120s (2 minutes)
+    const statusInterval = setInterval(fetchBotStatus, 10000); 
+    const marketInterval = setInterval(fetchMarketData, 30000); 
+    const indicatorsInterval = setInterval(fetchTechnicalIndicators, 60000); 
+    const chartInterval = setInterval(fetchChartData, 120000); 
     
     return () => {
       clearInterval(statusInterval);
@@ -960,8 +956,8 @@ const BloombergDashboard = () => {
   const [chartData, setChartData] = useState({
     combined: [],
     dataPoints: 0,
-    lastUpdate: new Date(0),
-    fallback: true
+    lastUpdate: new Date(0), 
+    fallback: true 
   });
 
   const periods = ['5m', '15m', '1h', '4h', '1d'];
@@ -993,7 +989,7 @@ const BloombergDashboard = () => {
   };
 
   const getColorForRSI = (rsi) => {
-    if (typeof rsi !== 'number' || isNaN(rsi) || rsi === 0) return '#9CA3AF';
+    if (typeof rsi !== 'number' || isNaN(rsi) || rsi === 0) return '#9CA3AF'; 
     if (rsi > 70) return '#EF4444';
     if (rsi < 30) return '#10B981';
     return '#F59E0B';
@@ -1304,6 +1300,7 @@ const BloombergDashboard = () => {
                 <div>
                   <div style={styles.itemLabel}>Balance</div>
                   <div style={{fontWeight: 'bold', color: '#ffffff', fontSize: '11px'}}>
+                    {/* Alterado para usar botStatus.testnet.balance diretamente */}
                     {botStatus.testnet.balance !== 0 ? formatCurrency(botStatus.testnet.balance) : 'N/A'}
                   </div>
                 </div>
@@ -1352,6 +1349,7 @@ const BloombergDashboard = () => {
                 <div>
                   <div style={styles.itemLabel}>Balance</div>
                   <div style={{fontWeight: 'bold', color: '#ffffff', fontSize: '11px'}}>
+                    {/* Alterado para usar botStatus.live.balance diretamente */}
                     {botStatus.live.balance !== 0 ? formatCurrency(botStatus.live.balance) : 'N/A'}
                   </div>
                 </div>
@@ -1443,7 +1441,8 @@ const BloombergDashboard = () => {
           </div>
 
           <div style={styles.chartContainer}>
-            <div style={{...styles.chartGrid, gridTemplateRows: '1.5fr 0.75fr 0.75fr'}}> {/* Ajustado para 3 linhas */}
+            {/* Ajustado gridTemplateRows para 3 linhas, 1.5fr para preço, 0.75fr para cada indicador */}
+            <div style={{...styles.chartGrid, gridTemplateRows: '1.5fr 0.75fr 0.75fr'}}> 
               {/* Gráfico Principal - DADOS REAIS */}
               <div style={styles.chartPanel}>
                 <h3 style={styles.chartTitle}>
@@ -1596,10 +1595,6 @@ const BloombergDashboard = () => {
                           dot={false}
                           name="Signal"
                         />
-                        {/* Histograma MACD (como barras) */}
-                        {/* Recharts não tem barras diretamente no LineChart, precisaria de ComposedChart ou BarChart separado.
-                            Por simplicidade, vamos deixar as linhas e focar na funcionalidade.
-                        */}
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
@@ -1628,7 +1623,7 @@ const BloombergDashboard = () => {
                           stroke="#9CA3AF" 
                           fontSize={9} 
                           width={35}
-                          domain={[0, 100]} // StochRSI também vai de 0 a 100
+                          domain={[0, 100]} 
                         />
                         <Tooltip
                           labelFormatter={(time) => new Date(time).toLocaleString()}
@@ -1642,16 +1637,16 @@ const BloombergDashboard = () => {
                         />
                         <Line
                           type="monotone"
-                          dataKey="stochrsi_k"
-                          stroke="#FFD700" // Cor para %K
+                          dataKey="stochrsi_k" 
+                          stroke="#FFD700" 
                           strokeWidth={2}
                           dot={false}
                           name="STOCHRSI %K"
                         />
                         <Line
                           type="monotone"
-                          dataKey="stochrsi_d"
-                          stroke="#8B5CF6" // Cor para %D
+                          dataKey="stochrsi_d" 
+                          stroke="#8B5CF6" 
                           strokeWidth={1.5}
                           dot={false}
                           name="STOCHRSI %D"
