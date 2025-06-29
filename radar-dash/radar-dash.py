@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import logging
-from typing import Dict, List, Tuple, Optional, Deque, Any
+from typing import Dict, List, Tuple, Optional, Deque, Any # Adicionado Any aqui
 import math
 from scipy import stats
 import pytz
@@ -395,6 +395,7 @@ realtime_ohlcv_cache = {
             "signal_angle": 0.0,
             "signal_angle_strength": 0.0,
         },
+        "stochrsi_data": {"stoch_k": [], "stoch_d": [], "last_k": 0.0, "last_d": 0.0, "signal": "NEUTRAL", "zone": "N/A"}, # Adicionado/Corrigido
         "last_update": None,
         "websocket_connected": False
     },
@@ -421,6 +422,7 @@ realtime_ohlcv_cache = {
             "signal_angle": 0.0,
             "signal_angle_strength": 0.0,
         },
+        "stochrsi_data": {"stoch_k": [], "stoch_d": [], "last_k": 0.0, "last_d": 0.0, "signal": "NEUTRAL", "zone": "N/A"}, # Adicionado/Corrigido
         "last_update": None,
         "websocket_connected": False
     },
@@ -1492,6 +1494,113 @@ class MACDCrossoverDetector:
 macd_detector = MACDCrossoverDetector()
 
 # ===============================================================================
+# 📊 FUNÇÕES STOCHRSI - ADICIONAR AO RADAR-DASH.PY
+# ===============================================================================
+
+def calculate_stochrsi_indicators(df: pd.DataFrame,
+                                  timeperiod: int = 14,
+                                  fastk_period: int = 3,
+                                  fastd_period: int = 3) -> Dict[str, Any]: # Changed return type hint to Any for None values
+    """
+    Calcula indicadores StochRSI usando TA-Lib
+    
+    Args:
+        df: DataFrame com colunas OHLCV
+        timeperiod: Período para cálculo do RSI (padrão: 14)
+        fastk_period: Período para suavização do %K (padrão: 3)
+        fastd_period: Período para suavização do %D (padrão: 3)
+    
+    Returns:
+        Dict com arrays de %K e %D do StochRSI, e seus últimos valores.
+    """
+    try:
+        # TA-Lib STOCHRSI requer no mínimo (timeperiod + fastk_period + fastd_period - 2) + 1 ou mais candles
+        # O período mínimo real é geralmente timeperiod (RSI) + fastk_period (SMA) + fastd_period (SMA do K)
+        # Uma estimativa mais segura é timeperiod + (fastk_period - 1) + (fastd_period - 1)
+        min_required_candles = timeperiod + fastk_period + fastd_period - 2
+        
+        if len(df) < min_required_candles:
+            logger.warning(f"⚠️ Dados insuficientes para StochRSI. Necessário: {min_required_candles}, disponível: {len(df)}")
+            return {"stoch_k": [], "stoch_d": [], "last_k": None, "last_d": None}
+            
+        close_prices = df['Close'].values.astype(np.float64)
+        
+        # Calcula StochRSI usando TA-Lib
+        # fastd_matype=0 é para SMA
+        fastk, fastd = talib.STOCHRSI(
+            close_prices,
+            timeperiod=timeperiod,
+            fastk_period=fastk_period,
+            fastd_period=fastd_period,
+            fastd_matype=0
+        )
+        
+        # Converte NaN para None para JSON serialization e arredonda
+        fastk_clean = [None if np.isnan(x) else round(float(x), 2) for x in fastk]
+        fastd_clean = [None if np.isnan(x) else round(float(x), 2) for x in fastd]
+        
+        # Encontra último valor válido
+        last_k = None
+        last_d = None
+        for i in reversed(range(len(fastk_clean))):
+            if fastk_clean[i] is not None and last_k is None:
+                last_k = fastk_clean[i]
+            if fastd_clean[i] is not None and last_d is None:
+                last_d = fastd_clean[i]
+            if last_k is not None and last_d is not None:
+                break
+        
+        logger.info(f"✅ StochRSI calculado: {len([x for x in fastk_clean if x is not None])} pontos %K, {len([x for x in fastd_clean if x is not None])} pontos %D")
+        logger.debug(f"   Último %K: {last_k}, Último %D: {last_d}")
+        
+        return {
+            "stoch_k": fastk_clean,
+            "stoch_d": fastd_clean,
+            "last_k": last_k,
+            "last_d": last_d
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao calcular StochRSI: {e}")
+        return {"stoch_k": [], "stoch_d": [], "last_k": None, "last_d": None}
+
+def get_stochrsi_signal(k_value: Optional[float], d_value: Optional[float]) -> Dict[str, str]:
+    """
+    Determina o sinal baseado nos valores atuais do StochRSI
+    
+    Args:
+        k_value: Valor atual do %K
+        d_value: Valor atual do %D
+    
+    Returns:
+        Dict com sinal e descrição
+    """
+    if k_value is None or d_value is None:
+        return {"signal": "NEUTRAL", "description": "Dados insuficientes ou StochRSI não calculado."}
+    
+    # Cruzamento de linha principal (%K) e linha de sinal (%D)
+    if k_value > d_value:
+        # Sinais de compra
+        if k_value < 20 and d_value < 20:
+            return {"signal": "OVERSOLD_BUY", "description": "StochRSI em sobrevenda (%K acima %D) - Sinal de compra forte."}
+        elif k_value > 50:
+            return {"signal": "BULLISH_MOMENTUM", "description": "StochRSI em alta (%K acima %D) - Impulso de compra."}
+    elif k_value < d_value:
+        # Sinais de venda
+        if k_value > 80 and d_value > 80:
+            return {"signal": "OVERBOUGHT_SELL", "description": "StochRSI em sobrecompra (%K abaixo %D) - Sinal de venda forte."}
+        elif k_value < 50:
+            return {"signal": "BEARISH_MOMENTUM", "description": "StochRSI em baixa (%K abaixo %D) - Impulso de venda."}
+    
+    # Zonas de sobrecompra/sobrevenda sem cruzamento direcional claro
+    if k_value > 80:
+        return {"signal": "OVERBOUGHT", "description": "StochRSI em zona de sobrecompra."}
+    elif k_value < 20:
+        return {"signal": "OVERSOLD", "description": "StochRSI em zona de sobrevenda."}
+    
+    return {"signal": "NEUTRAL", "description": "StochRSI sem sinal claro ou em transição."}
+
+# ===============================================================================
 # 📊 PROCESSADOR DE DADOS TEMPO REAL (NOVO)
 # ===============================================================================
 def calculate_trend_angle_indicator(values: List[float], time_window: int = 5) -> Dict:
@@ -1526,9 +1635,10 @@ def calculate_trend_angle_indicator(values: List[float], time_window: int = 5) -
         logger.warning(f"Erro ao calcular ângulo do indicador: {e}")
         return {"angle": 0, "strength": 0}
 
-def update_realtime_macd(asset: str, new_candle: Dict):
+def update_realtime_macd_with_stochrsi(asset: str, new_candle: Dict):
     """
-    Atualiza MACD, RSI e suas inclinações em tempo real com novo candle
+    Atualiza MACD, RSI e StochRSI em tempo real com novo candle
+    VERSÃO CORRIGIDA que inclui StochRSI
     """
     try:
         # Garante que o asset existe no cache, inicializando se necessário
@@ -1540,6 +1650,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                 "current_candle": None,
                 "macd_data": {"macd": [], "signal": [], "histogram": [], "last_crossover": None, "crossover_alerts": []},
                 "rsi_data": {"rsi": [], "last_value": 0.0, "angle": 0.0, "strength": 0.0, "trend": "NEUTRAL"},
+                "stochrsi_data": {"stoch_k": [], "stoch_d": [], "last_k": 0.0, "last_d": 0.0, "signal": "NEUTRAL", "zone": "N/A"}, # NOVO
                 "macd_angle_data": {"macd_angle": 0.0, "macd_angle_strength": 0.0, "signal_angle": 0.0, "signal_angle_strength": 0.0},
                 "last_update": None,
                 "websocket_connected": False
@@ -1551,14 +1662,20 @@ def update_realtime_macd(asset: str, new_candle: Dict):
         realtime_ohlcv_cache[asset]["last_update"] = datetime.now().isoformat()
 
         candles = list(realtime_ohlcv_cache[asset]["candles"])
-        close_prices = np.array([float(c["close"]) for c in candles])
+        
+        # Criar DataFrame temporário para cálculos
+        df_temp = pd.DataFrame([{
+            'Open': float(c["open"]),
+            'High': float(c["high"]), 
+            'Low': float(c["low"]),
+            'Close': float(c["close"]),
+            'Volume': float(c["volume"])
+        } for c in candles])
+        
+        close_prices = df_temp['Close'].values
         
         # --- Cálculo do MACD ---
-        macd_clean = []
-        signal_clean = []
-        hist_clean = []
-        
-        if len(close_prices) >= 34: # MACD requires at least 34 periods
+        if len(close_prices) >= 34:
             macd, macd_signal, macd_hist = talib.MACD(
                 close_prices.astype(np.float64),
                 fastperiod=12,
@@ -1577,6 +1694,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                 "last_update": datetime.now().isoformat()
             })
             
+            # Verificar cruzamentos
             if len(macd_clean) >= 2 and len(signal_clean) >= 2:
                 crossover = macd_detector.detect_crossover(
                     asset=asset,
@@ -1589,7 +1707,7 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                     realtime_ohlcv_cache[asset]["macd_data"]["last_crossover"] = crossover
             
             # Calcular ângulos do MACD
-            if len(macd_clean) >= 5 and len(signal_clean) >= 5: # Mínimo 5 pontos para calcular ângulo
+            if len(macd_clean) >= 5 and len(signal_clean) >= 5:
                 macd_angle_info = calculate_trend_angle_indicator(macd_clean)
                 signal_angle_info = calculate_trend_angle_indicator(signal_clean)
                 realtime_ohlcv_cache[asset]["macd_angle_data"].update({
@@ -1598,18 +1716,16 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                     "signal_angle": signal_angle_info["angle"],
                     "signal_angle_strength": signal_angle_info["strength"],
                 })
-            else: # Se não há dados suficientes, resetar ângulos
+            else:
                 realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
-            
-        else: # Se não há candles suficientes para MACD, resetar tudo
+        else:
             logger.debug(f"Insufficient candles for MACD for {asset} ({len(close_prices)}/34)")
             realtime_ohlcv_cache[asset]["macd_data"] = {"macd": [], "signal": [], "histogram": [], "last_crossover": None}
             realtime_ohlcv_cache[asset]["macd_angle_data"] = {"macd_angle": 0, "macd_angle_strength": 0, "signal_angle": 0, "signal_angle_strength": 0}
 
 
         # --- Cálculo do RSI ---
-        rsi_clean = []
-        if len(close_prices) >= 14: # RSI requires at least 14 periods
+        if len(close_prices) >= 14:
             rsi_values = talib.RSI(close_prices.astype(np.float64), timeperiod=14)
             rsi_clean = np.nan_to_num(rsi_values).tolist()
             last_rsi_value = rsi_clean[-1] if rsi_clean else 0.0
@@ -1623,18 +1739,42 @@ def update_realtime_macd(asset: str, new_candle: Dict):
                 rsi_trend = "FALLING"
 
             realtime_ohlcv_cache[asset]["rsi_data"].update({
-                "rsi": rsi_clean, # Armazena a série completa de RSI (pode ser útil para depuração)
+                "rsi": rsi_clean,
                 "last_value": round(last_rsi_value, 2),
                 "angle": rsi_angle_info["angle"],
                 "strength": rsi_angle_info["strength"],
                 "trend": rsi_trend,
                 "last_update": datetime.now().isoformat()
             })
-        else: # Se não há candles suficientes para RSI, resetar
+        else:
             logger.debug(f"Insufficient candles for RSI for {asset} ({len(close_prices)}/14)")
             realtime_ohlcv_cache[asset]["rsi_data"] = {"rsi": [], "last_value": 0.0, "angle": 0, "strength": 0, "trend": "NEUTRAL"}
             
-        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(macd_clean or [])} pts), RSI ({len(rsi_clean or [])} pts)")
+        # --- NOVO: Cálculo do StochRSI ---
+        stochrsi_required = 14 + 3 + 3 -2 # timeperiod + fastk_period + fastd_period - 2. Minimum for calculation.
+        if len(close_prices) >= stochrsi_required:
+            try:
+                stochrsi_result = calculate_stochrsi_indicators(df_temp)
+                
+                realtime_ohlcv_cache[asset]["stochrsi_data"].update({
+                    "stoch_k": stochrsi_result["stoch_k"],
+                    "stoch_d": stochrsi_result["stoch_d"], 
+                    "last_k": stochrsi_result["last_k"] or 0.0,
+                    "last_d": stochrsi_result["last_d"] or 0.0,
+                    "signal": get_stochrsi_signal(stochrsi_result["last_k"], stochrsi_result["last_d"])["signal"],
+                    "last_update": datetime.now().isoformat()
+                })
+                
+                logger.debug(f"✅ StochRSI calculado para {asset}: %K={stochrsi_result['last_k']}, %D={stochrsi_result['last_d']}")
+                
+            except Exception as stochrsi_error:
+                logger.warning(f"Erro no cálculo StochRSI para {asset}: {stochrsi_error}")
+                realtime_ohlcv_cache[asset]["stochrsi_data"] = {"stoch_k": [], "stoch_d": [], "last_k": 0.0, "last_d": 0.0, "signal": "NEUTRAL", "zone": "N/A"}
+        else:
+            logger.debug(f"Insufficient candles for StochRSI for {asset} ({len(close_prices)}/{stochrsi_required})")
+            realtime_ohlcv_cache[asset]["stochrsi_data"] = {"stoch_k": [], "stoch_d": [], "last_k": 0.0, "last_d": 0.0, "signal": "NEUTRAL", "zone": "N/A"}
+            
+        logger.debug(f"📊 Indicators updated for {asset}: MACD ({len(realtime_ohlcv_cache[asset]['macd_data']['macd'] or [])} pts), RSI ({len(realtime_ohlcv_cache[asset]['rsi_data']['rsi'] or [])} pts), StochRSI ({len(realtime_ohlcv_cache[asset]['stochrsi_data']['stoch_k'] or [])} pts)")
         
     except Exception as e:
         logger.error(f"Error updating realtime indicators for {asset}: {e}", exc_info=True)
@@ -1754,7 +1894,7 @@ async def fetch_realtime_ohlcv_gateio():
                             "datetime": datetime.fromtimestamp(timestamp).isoformat()
                         }
                         
-                        update_realtime_macd(asset_key, new_candle)
+                        update_realtime_macd_with_stochrsi(asset_key, new_candle)
                         
                         broadcast_data = {
                         "type": "ohlcv_update",
@@ -2405,10 +2545,10 @@ def test_data_fetch():
 
 @app.get("/api/precos/{period}")
 async def get_financial_data_by_period(period: str):
-    """Endpoint para dados históricos, incluindo MACD e Volume colorido - CORRIGIDO"""
+    """Endpoint para dados históricos, incluindo MACD, RSI, StochRSI e Volume colorido - CORRIGIDO"""
     logger.info(f"📊 Fetching financial data for period: {period}")
     
-    yfinance_period_map = {
+    yfinance_period_map = { # Este bloco (e os maps seguintes) está no nível correto
         '1d': '1d',
         '5d': '5d',
         '1mo': '1mo',
@@ -2460,23 +2600,11 @@ async def get_financial_data_by_period(period: str):
     }
     
     gateio_limit_map = {
-        '1d': 1000,
-        '5d': 480,
-        '1mo': 180,
-        '3mo': 200,
-        '6mo': 200,
-        '1y': 200,
-        '2y': 200,
-        '5y': 200,
-        'max': 200,
-        '5m': 300,
-        '15m': 400,
-        '30m': 480,
         '1h': 720,
         '4h': 180
     }
 
-    try:
+    try: # <--- Este `try` foi desalinhado para a esquerda.
         data = {}
         
         all_symbols_to_fetch = list(SYMBOLS.keys()) + [s.split('_')[0].lower() for s in TRADING_SYMBOLS if s.split('_')[0].lower() not in SYMBOLS.keys()]
@@ -2495,6 +2623,9 @@ async def get_financial_data_by_period(period: str):
             opens = []
             highs = []
             lows = []
+            rsi_values_list = [] # NOVO: Lista para valores RSI históricos
+            stoch_k_values = []
+            stoch_d_values = []
 
             try:
                 hist = pd.DataFrame()
@@ -2524,10 +2655,10 @@ async def get_financial_data_by_period(period: str):
                     
                     try:
                         hist = yf.download(
-                            symbol_yf, 
-                            period=yf_period, 
-                            interval=yf_interval, 
-                            progress=False, 
+                            symbol_yf,
+                            period=yf_period,
+                            interval=yf_interval,
+                            progress=False,
                             threads=False,
                             auto_adjust=True
                         )
@@ -2551,12 +2682,21 @@ async def get_financial_data_by_period(period: str):
                     all(col in hist.columns for col in required_ohlcv_cols) and
                     all(not hist[col].empty for col in required_ohlcv_cols)):
                     
+                    # --- ATUALIZAÇÃO NESTA SEÇÃO ---
+                    # Substitua o loop 'for col in required_ohlcv_cols:' existente
+                    # por esta versão mais robusta para garantir tipos numéricos
                     for col in required_ohlcv_cols:
-                        if isinstance(hist[col], (list, tuple, np.ndarray, pd.Series)):
+                        if col in hist.columns:
                             hist[col] = pd.to_numeric(hist[col], errors='coerce')
+                            # Se você precisa ter certeza que não há DataFrames aninhados,
+                            # Adicione uma verificação mais específica aqui se o problema persistir:
+                            # if isinstance(hist[col], pd.DataFrame):
+                            #    logger.warning(f"Column '{col}' for {asset_name} is still a DataFrame. Flattening.")
+                            #    hist[col] = hist[col].iloc[:, 0] # Tenta pegar a primeira coluna
                         else:
-                            logger.warning(f"⚠️ Column '{col}' for {asset_name} is not a compatible type for numeric conversion: {type(hist[col])}. Setting to NaN.")
-                            hist[col] = np.nan
+                            logger.warning(f"⚠️ Coluna '{col}' não encontrada para {asset_name}.")
+                            hist[col] = np.nan # Garante que a coluna existe, mesmo que vazia
+                    # --- FIM DA ATUALIZAÇÃO ---
 
                     hist['Close'] = hist['Close'].ffill().bfill()
                     hist['Volume'] = hist['Volume'].fillna(0)
@@ -2588,23 +2728,47 @@ async def get_financial_data_by_period(period: str):
                         macd_signal_values = []
                         macd_hist_values = []
 
-                        if len(hist_cleaned) >= 34: 
+                        # RSI (Histórico)
+                        rsi_values_list = [] # Reset para cada ativo
+
+                        # StochRSI (Histórico)
+                        stoch_k_values = []
+                        stoch_d_values = []
+
+                        # Condição para calcular indicadores
+                        min_candles_for_all = max(34, 14, (14 + 3 + 3 - 2)) # MACD:34, RSI:14, StochRSI: ~18
+                        
+                        if len(hist_cleaned) >= min_candles_for_all:
                             try:
+                                # Cálculo MACD
                                 macd, macdsignal, macdhist = talib.MACD(
                                     hist_cleaned['Close'].values.astype(np.float64),
-                                    fastperiod=12, 
-                                    slowperiod=26, 
+                                    fastperiod=12,
+                                    slowperiod=26,
                                     signalperiod=9
                                 )
-                                
-                                # Converter NaN para 0 e para listas Python
                                 macd_values_raw = np.nan_to_num(macd).tolist()
                                 macd_signal_values_raw = np.nan_to_num(macdsignal).tolist()
                                 macd_hist_values_raw = np.nan_to_num(macdhist).tolist()
 
-                                min_len_data = min(len(prices), len(macd_values_raw), len(macd_signal_values_raw), len(macd_hist_values_raw))
+                                # Cálculo RSI Histórico
+                                rsi_series = talib.RSI(hist_cleaned['Close'].values.astype(np.float64), timeperiod=14)
+                                rsi_values_list = np.nan_to_num(rsi_series).tolist() # Converte NaN para 0 ou outro valor
+
+                                # Cálculo StochRSI Histórico
+                                stochrsi_results = calculate_stochrsi_indicators(hist_cleaned)
+                                stoch_k_values = stochrsi_results["stoch_k"]
+                                stoch_d_values = stochrsi_results["stoch_d"]
+
+
+                                # Encontrar o comprimento mínimo entre todas as séries de dados
+                                all_lengths = [len(prices), len(macd_values_raw), len(macd_signal_values_raw),
+                                               len(macd_hist_values_raw), len(rsi_values_list),
+                                               len(stoch_k_values), len(stoch_d_values)]
+                                min_len_data = min(all_lengths) if all_lengths else 0
                                 
                                 if min_len_data > 0:
+                                    # Truncar todas as listas para o comprimento mínimo
                                     prices = prices[-min_len_data:]
                                     volumes = volumes[-min_len_data:]
                                     opens = opens[-min_len_data:]
@@ -2615,18 +2779,31 @@ async def get_financial_data_by_period(period: str):
                                     macd_values = macd_values_raw[-min_len_data:]
                                     macd_signal_values = macd_signal_values_raw[-min_len_data:]
                                     macd_hist_values = macd_hist_values_raw[-min_len_data:]
+                                    rsi_values_list = rsi_values_list[-min_len_data:]
+                                    stoch_k_values = stoch_k_values[-min_len_data:]
+                                    stoch_d_values = stoch_d_values[-min_len_data:]
                                     
-                                    logger.info(f"DEBUG: {asset_name} - MACD calculated and aligned. Prices length: {len(prices)}, MACD length: {len(macd_values)}")
+                                    logger.info(f"DEBUG: {asset_name} - Indicators calculated and aligned. Prices: {len(prices)}, MACD: {len(macd_values)}, RSI: {len(rsi_values_list)}, StochRSI: {len(stoch_k_values)}")
                                 else:
-                                    logger.warning(f"DEBUG: {asset_name} - MACD calculation resulted in no valid points")
+                                    logger.warning(f"DEBUG: {asset_name} - Indicator calculation resulted in no valid points after alignment.")
+                                    # Resetar todas as listas se não houver pontos válidos
+                                    prices, volumes, opens, highs, lows, volume_colors, asset_dates = [], [], [], [], [], [], []
                                     macd_values, macd_signal_values, macd_hist_values = [], [], []
-                            except Exception as macd_error:
-                                logger.warning(f"MACD calculation failed for {asset_name}: {macd_error}")
+                                    rsi_values_list = []
+                                    stoch_k_values, stoch_d_values = [], []
+
+                            except Exception as indicators_error:
+                                logger.warning(f"MACD/RSI/StochRSI calculation failed for {asset_name}: {indicators_error}")
                                 macd_values, macd_signal_values, macd_hist_values = [], [], []
+                                rsi_values_list = []
+                                stoch_k_values, stoch_d_values = [], []
 
                         else:
-                            logger.warning(f"DEBUG: {asset_name} - NOT enough data ({len(hist_cleaned['Close'])} points) for MACD calculation")
+                            logger.warning(f"DEBUG: {asset_name} - NOT enough data ({len(hist_cleaned['Close'])} points) for MACD and StochRSI calculation (min 34 for MACD, ~30 for StochRSI).")
                             macd_values, macd_signal_values, macd_hist_values = [], [], []
+                            rsi_values_list = []
+                            stoch_k_values, stoch_d_values = [], []
+
                     else:
                         logger.warning(f"DEBUG: {asset_name} - Cleaned history is empty after dropping NaNs")
                 else:
@@ -2648,7 +2825,10 @@ async def get_financial_data_by_period(period: str):
                     'dates': asset_dates,          # Datas formatadas
                     'macd_data': macd_values,      # MACD
                     'macd_signal_data': macd_signal_values, # Sinal MACD
-                    'macd_hist_data': macd_hist_values      # Histograma MACD
+                    'macd_hist_data': macd_hist_values,      # Histograma MACD
+                    'rsi_data': rsi_values_list, # NOVO: Adicione o RSI histórico aqui
+                    'stochrsi_k_data': stoch_k_values,
+                    'stochrsi_d_data': stoch_d_values
                 }
                 logger.info(f"✅ {asset_name}: {len(prices)} points processed")
 
@@ -2668,7 +2848,10 @@ async def get_financial_data_by_period(period: str):
                     'dates': [],
                     'macd_data': [],
                     'macd_signal_data': [],
-                    'macd_hist_data': []
+                    'macd_hist_data': [],
+                    'rsi_data': [], # Fallback para RSI
+                    'stochrsi_k_data': [],
+                    'stochrsi_d_data': []
                 }
 
         # Encontrar datas comuns (usar a maior lista de datas disponível)
@@ -2689,7 +2872,7 @@ async def get_financial_data_by_period(period: str):
         }
         logger.info(f"✅ Response prepared: {len(common_dates)} data points for {len(data)} assets")
         return response
-    except Exception as e:
+    except Exception as e: # <--- Este `except` também foi desalinhado para a esquerda.
         logger.error(f"❌ Critical error fetching financial data for {period}: {e}", exc_info=True)
         # Resposta de erro com estrutura correta
         return {
@@ -2698,9 +2881,9 @@ async def get_financial_data_by_period(period: str):
             "data_points": 0,
             "dates": [],
             "assets": {
-                'gold': {'name': 'Gold', 'symbol': 'GC=F', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []},
-                'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []},
-                'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': []}
+                'gold': {'name': 'Gold', 'symbol': 'GC=F', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'btc': {'name': 'Btc', 'symbol': 'BTC-USD', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []},
+                'dxy': {'name': 'Dxy', 'symbol': 'DX-Y.NYB', 'price_data': [], 'volume_data': [], 'volume_colors': [], 'open_data': [], 'high_data': [], 'low_data': [], 'volume_avg_formatted': '0', 'macd_data': [], 'macd_signal_data': [], 'macd_hist_data': [], 'stochrsi_k_data': [], 'stochrsi_d_data': []}
             },
             "timestamp": datetime.now().isoformat(),
             "status": "error"
@@ -3272,7 +3455,7 @@ def get_backtest_recommendations():
 
 @app.get("/api/trading-bot/status")
 def get_trading_bot_status():
-    """Endpoint para status do trading bot - ATUALIZADO COM AMBIENTE"""
+    """Endpoint para status do trading bot - ATUALIZADO COM AMBIENTE E PERFORMANCE DETALHADA"""
     global real_trading_bot, current_bot_environment
     
     try:
@@ -3291,7 +3474,7 @@ def get_trading_bot_status():
                     "symbols": ["BTC_USDT", "ETH_USDT"],
                     "error": "Bot not initialized"
                 },
-                "performance": {
+                "performance": { # Performance fallback
                     "start_balance": 0, "current_balance": 0, "total_trades": 0,
                     "winning_trades": 0, "total_pnl": 0, "daily_pnl": 0,
                     "max_drawdown": 0, "win_rate": 0, "roi_percentage": 0,
@@ -3299,10 +3482,15 @@ def get_trading_bot_status():
                     "environment": current_bot_environment.upper(),
                     "last_update": datetime.now().isoformat()
                 },
-                "environment_info": {
-                    "current": current_bot_environment.upper(),
-                    "can_change": True,
-                    "is_live": current_bot_environment == "live"
+                "testnet_performance": { # Fallback para testnet
+                    "balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0,
+                    "win_rate": 0.0, "total_trades": 0, "winning_trades": 0,
+                    "daily_pnl": 0.0, "daily_trades": 0
+                },
+                "live_performance": { # Fallback para live
+                    "balance": 0.0, "total_pnl": 0.0, "roi_percentage": 0.0,
+                    "win_rate": 0.0, "total_trades": 0, "winning_trades": 0,
+                    "daily_pnl": 0.0, "daily_trades": 0
                 },
                 "active_positions": [], "recent_signals": [],
                 "daily_stats": {"trades_today": 0, "max_daily_trades": 0, "daily_pnl": 0, "date": datetime.now().date().isoformat()}
@@ -3333,10 +3521,59 @@ def get_trading_bot_status():
                 }
             }
             
+            # NOVO: Mapear performance por ambiente
+            # Assumimos que 'real_trading_bot.performance' agora contém uma performance consolidada
+            # Ou que você terá 'real_trading_bot.testnet_performance' e 'real_trading_bot.live_performance'
+            # Se seu bot real não tem essa separação, você precisará decidir como populá-los.
+            # Aqui, vou simular essa separação, ou você pode adaptá-la para um único objeto 'performance'
+            # que é interpretado como o ambiente ATUAL do bot.
+            
+            # Idealmente, o bot real já retornaria isso, mas se não, faça o mapeamento aqui:
+            testnet_perf = {
+                "balance": real_trading_bot.performance.get("current_balance", 0.0) if real_trading_bot.environment == "testnet" else 0.0,
+                "total_pnl": real_trading_bot.performance.get("total_pnl", 0.0) if real_trading_bot.environment == "testnet" else 0.0,
+                "roi_percentage": real_trading_bot.performance.get("roi_percentage", 0.0) if real_trading_bot.environment == "testnet" else 0.0,
+                "win_rate": real_trading_bot.performance.get("win_rate", 0.0) if real_trading_bot.environment == "testnet" else 0.0,
+                "total_trades": real_trading_bot.performance.get("total_trades", 0) if real_trading_bot.environment == "testnet" else 0,
+                "winning_trades": real_trading_bot.performance.get("winning_trades", 0) if real_trading_bot.environment == "testnet" else 0,
+                "daily_pnl": real_trading_bot.performance.get("daily_pnl", 0.0) if real_trading_bot.environment == "testnet" else 0.0,
+                "daily_trades": real_trading_bot.performance.get("daily_trades", 0) if real_trading_bot.environment == "testnet" else 0
+            }
+            live_perf = {
+                "balance": real_trading_bot.performance.get("current_balance", 0.0) if real_trading_bot.environment == "live" else 0.0,
+                "total_pnl": real_trading_bot.performance.get("total_pnl", 0.0) if real_trading_bot.environment == "live" else 0.0,
+                "roi_percentage": real_trading_bot.performance.get("roi_percentage", 0.0) if real_trading_bot.environment == "live" else 0.0,
+                "win_rate": real_trading_bot.performance.get("win_rate", 0.0) if real_trading_bot.environment == "live" else 0.0,
+                "total_trades": real_trading_bot.performance.get("total_trades", 0) if real_trading_bot.environment == "live" else 0,
+                "winning_trades": real_trading_bot.performance.get("winning_trades", 0) if real_trading_bot.environment == "live" else 0,
+                "daily_pnl": real_trading_bot.performance.get("daily_pnl", 0.0) if real_trading_bot.environment == "live" else 0.0,
+                "daily_trades": real_trading_bot.performance.get("daily_trades", 0) if real_trading_bot.environment == "live" else 0
+            }
+            
+            # Se o bot real tem uma estrutura de performance mais rica com histórico por ambiente:
+            if hasattr(real_trading_bot, 'testnet_performance_data'): # Exemplo: Se o bot armazena isso
+                testnet_perf = real_trading_bot.testnet_performance_data
+            if hasattr(real_trading_bot, 'live_performance_data'): # Exemplo: Se o bot armazena isso
+                live_perf = real_trading_bot.live_performance_data
+
+            status_report["testnet_performance"] = testnet_perf
+            status_report["live_performance"] = live_perf
+
+            # Adicionar status dos sistemas de IA do bot
+            ai_system_status = real_trading_bot.get_ai_system_status() if hasattr(real_trading_bot, 'get_ai_system_status') else {
+                "ml_available": False, "xgb_available": False, "sentiment_available": False,
+                "talib_available": True, "model_trained": False, "fred_calendar_active": False,
+                "cryptopanic_active": False, "newsapi_active": False
+            }
+            status_report["ai_system_status"] = ai_system_status
+            
             return status_report
             
         except Exception as status_error:
             logger.error(f"❌ Erro ao obter status do bot real: {status_error}", exc_info=True)
+            
+            # Fallback aprimorado para erros
+            performance_fallback = real_trading_bot.performance if real_trading_bot else {}
             
             return {
                 "timestamp": datetime.now().isoformat(),
@@ -3346,20 +3583,45 @@ def get_trading_bot_status():
                 "bot_info": {
                     "environment": current_bot_environment.upper(),
                     "strategy": "RSI_MACD_COMBINED",
-                    "running": real_trading_bot.running,
+                    "running": real_trading_bot.running if real_trading_bot else False,
                     "symbols": TRADING_SYMBOLS
                 },
-                "performance": real_trading_bot.performance if real_trading_bot else {},
-                "active_positions": [],
+                "performance": performance_fallback, # Continua usando performance geral
+                "testnet_performance": { # Fallback para testnet em caso de erro
+                    "balance": performance_fallback.get("current_balance", 0.0) if current_bot_environment == "testnet" else 0.0,
+                    "total_pnl": performance_fallback.get("total_pnl", 0.0) if current_bot_environment == "testnet" else 0.0,
+                    "roi_percentage": performance_fallback.get("roi_percentage", 0.0) if current_bot_environment == "testnet" else 0.0,
+                    "win_rate": performance_fallback.get("win_rate", 0.0) if current_bot_environment == "testnet" else 0.0,
+                    "total_trades": performance_fallback.get("total_trades", 0) if current_bot_environment == "testnet" else 0,
+                    "winning_trades": performance_fallback.get("winning_trades", 0) if current_bot_environment == "testnet" else 0,
+                    "daily_pnl": performance_fallback.get("daily_pnl", 0.0) if current_bot_environment == "testnet" else 0.0,
+                    "daily_trades": performance_fallback.get("daily_trades", 0) if current_bot_environment == "testnet" else 0
+                },
+                "live_performance": { # Fallback para live em caso de erro
+                    "balance": performance_fallback.get("current_balance", 0.0) if current_bot_environment == "live" else 0.0,
+                    "total_pnl": performance_fallback.get("total_pnl", 0.0) if current_bot_environment == "live" else 0.0,
+                    "roi_percentage": performance_fallback.get("roi_percentage", 0.0) if current_bot_environment == "live" else 0.0,
+                    "win_rate": performance_fallback.get("win_rate", 0.0) if current_bot_environment == "live" else 0.0,
+                    "total_trades": performance_fallback.get("total_trades", 0) if current_bot_environment == "live" else 0,
+                    "winning_trades": performance_fallback.get("winning_trades", 0) if current_bot_environment == "live" else 0,
+                    "daily_pnl": performance_fallback.get("daily_pnl", 0.0) if current_bot_environment == "live" else 0.0,
+                    "daily_trades": performance_fallback.get("daily_trades", 0) if current_bot_environment == "live" else 0
+                },
+                "active_positions": real_trading_bot.active_positions if real_trading_bot else [],
                 "recent_signals": [],
                 "environment_info": {
                     "current": current_bot_environment.upper(),
-                    "can_change": not real_trading_bot.running,
+                    "can_change": not (real_trading_bot.running if real_trading_bot else False),
                     "is_live": current_bot_environment == "live"
                 },
                 "debug_info": {
                     "error_occurred": True,
                     "error_message": str(status_error)
+                },
+                "ai_system_status": { # Fallback para ai_system_status em caso de erro
+                    "ml_available": False, "xgb_available": False, "sentiment_available": False,
+                    "talib_available": True, "model_trained": False, "fred_calendar_active": False,
+                    "cryptopanic_active": False, "newsapi_active": False
                 }
             }
 
@@ -4447,59 +4709,40 @@ async def get_rsi_macd_websocket_data():
     try:
         current_time = datetime.now()
         
-        # Tenta obter dados reais do bot
-        if real_trading_bot and hasattr(real_trading_bot, 'signals_history') and real_trading_bot.signals_history:
-            try:
-                # O ideal seria pegar os últimos valores RSI/MACD calculados pelo bot no ciclo mais recente
-                # Como 'features' não está diretamente no signal, ou é uma cópia, precisamos reavaliar
-                # uma forma de obter os dados mais recentes do RSI/MACD do cache do bot.
-                # Por simplicidade, vou pegar os do cache de OHLCV em tempo real do dashboard.
-
-                btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
-                if btc_ohlcv_cache and btc_ohlcv_cache.get("macd_data", {}).get("macd"):
-                    macd_data = btc_ohlcv_cache["macd_data"]
-                    # Usar os valores reais do MACD calculados
-                    macd_value = macd_data["macd"][-1] if macd_data["macd"] else 0
-                    signal_value = macd_data["signal"][-1] if macd_data["signal"] else 0
-                    histogram = macd_data["histogram"][-1] if macd_data["histogram"] else 0
-
-                    # Tentar calcular RSI do último candle real
-                    candles_list = list(btc_ohlcv_cache["candles"])
-                    if len(candles_list) >= 14:
-                        df_candles = pd.DataFrame(candles_list)
-                        df_candles['close'] = df_candles['close'].astype(float)
-                        rsi_series = talib.RSI(df_candles['close'].values, timeperiod=14)
-                        rsi_value = rsi_series[-1] if not pd.isna(rsi_series[-1]) else 50.0
-                    else:
-                        rsi_value = round(random.uniform(25, 75), 1) # Fallback se não houver candles suficientes
-                    
-                    data_source = "real_ohlcv_macd"
-
-                else: # Fallback se não houver dados reais de OHLCV do WebSocket
-                    logger.warning("No real OHLCV/MACD data from WebSocket for RSI+MACD display. Using simulated data.")
-                    rsi_value = round(random.uniform(25, 75), 1)
-                    macd_value = round(random.uniform(-80, 80), 4)
-                    signal_value = round(random.uniform(-80, 80), 4)
-                    histogram = round(macd_value - signal_value, 4)
-                    data_source = "simulated_fallback"
-
-            except Exception as ex:
-                logger.warning(f"Failed to extract real RSI/MACD data for WebSocket: {ex}. Using simulated data.")
-                rsi_value = round(random.uniform(25, 75), 1)
-                macd_value = round(random.uniform(-80, 80), 4)
-                signal_value = round(random.uniform(-80, 80), 4)
-                histogram = round(macd_value - signal_value, 4)
-                data_source = "simulated_fallback"
-
-        else: # Se o bot não estiver inicializado
-            rsi_value = round(random.uniform(25, 75), 1)
-            macd_value = round(random.uniform(-80, 80), 4)
-            signal_value = round(random.uniform(-80, 80), 4)
-            histogram = round(macd_value - signal_value, 4)
-            data_source = "simulated"
+        # Obtenha os dados do cache em tempo real para BTC
+        btc_ohlcv_cache = realtime_ohlcv_cache.get("btc", {})
         
+        # Dados MACD
+        macd_data = btc_ohlcv_cache.get("macd_data", {})
+        macd_value = macd_data["macd"][-1] if macd_data.get("macd") and macd_data["macd"] else 0.0
+        signal_value = macd_data["signal"][-1] if macd_data.get("signal") and macd_data["signal"] else 0.0
+        histogram = macd_data["histogram"][-1] if macd_data.get("histogram") and macd_data["histogram"] else 0.0
+
+        # Dados RSI
+        rsi_data = btc_ohlcv_cache.get("rsi_data", {})
+        rsi_value = rsi_data.get("last_value", 50.0)
+        rsi_angle = rsi_data.get("angle", 0.0)
+        rsi_strength = rsi_data.get("strength", 0.0)
+        rsi_trend = rsi_data.get("trend", "NEUTRAL")
+
+        # Dados StochRSI
+        stochrsi_data = btc_ohlcv_cache.get("stochrsi_data", {})
+        stochrsi_k = stochrsi_data.get("last_k", 0.0)
+        stochrsi_d = stochrsi_data.get("last_d", 0.0)
+        stochrsi_signal_type = stochrsi_data.get("signal", "NEUTRAL")
+        stochrsi_zone = stochrsi_data.get("zone", "N/A")
+
+        # Ângulos MACD
+        macd_angle_data = btc_ohlcv_cache.get("macd_angle_data", {})
+        macd_angle = macd_angle_data.get("macd_angle", 0.0)
+        signal_angle = macd_angle_data.get("signal_angle", 0.0)
+        
+        # Determine data_source
+        data_source = "simulated"
+        if btc_ohlcv_cache and btc_ohlcv_cache.get("candles"):
+            data_source = "real_ohlcv_data"
+
         rsi_zone = "oversold" if rsi_value < 30 else ("overbought" if rsi_value > 70 else "neutral")
-        rsi_trend = "rising" if rsi_value > 50 else ("falling" if rsi_value < 50 else "flat") # Simplificado para demo
         rsi_confidence = 85 if rsi_zone in ["oversold", "overbought"] else 45
         macd_strength = min(abs(histogram) * 15, 90)
         combined_confidence = round((rsi_confidence + macd_strength) / 2, 0)
@@ -4507,15 +4750,25 @@ async def get_rsi_macd_websocket_data():
         signal_type = "HOLD"
         signal_color = "#FFD700"
         
-        # Lógica de sinal para exibição
-        if histogram > 0 and rsi_value < 70: # MACD bullish cross and not overbought RSI
+        # Lógica de sinal consolidada para exibição (pode ser mais sofisticada)
+        # Prioridade de sinais - StochRSI pode ter alta prioridade
+        if stochrsi_signal_type == "OVERSOLD_BUY":
             signal_type = "BUY"
             signal_color = "#00ff00"
-            if rsi_zone == "oversold" and histogram > 5: signal_type = "STRONG_BUY"
-        elif histogram < 0 and rsi_value > 30: # MACD bearish cross and not oversold RSI
+            combined_confidence = min(100, combined_confidence + 15) # Boost de confiança
+        elif stochrsi_signal_type == "OVERBOUGHT_SELL":
             signal_type = "SELL"
             signal_color = "#ff0000"
-            if rsi_zone == "overbought" and histogram < -5: signal_type = "STRONG_SELL"
+            combined_confidence = min(100, combined_confidence + 15) # Boost de confiança
+        elif histogram > 0 and rsi_value < 70 and rsi_angle > 0: # MACD bullish, not overbought RSI, RSI rising
+            signal_type = "BUY"
+            signal_color = "#00ff00"
+            if rsi_zone == "oversold" and histogram > 0.005 and stochrsi_k < 20: signal_type = "STRONG_BUY"
+        elif histogram < 0 and rsi_value > 30 and rsi_angle < 0: # MACD bearish, not oversold RSI, RSI falling
+            signal_type = "SELL"
+            signal_color = "#ff0000"
+            if rsi_zone == "overbought" and histogram < -0.005 and stochrsi_k > 80: signal_type = "STRONG_SELL"
+
 
         return {
             "type": "rsi_macd_update",
@@ -4528,14 +4781,24 @@ async def get_rsi_macd_websocket_data():
                 "zone": rsi_zone,
                 "trend": rsi_trend,
                 "confidence": rsi_confidence,
-                "color": "#ff4444" if rsi_zone == "overbought" else "#44ff44" if rsi_zone == "oversold" else "#ffaa00"
+                "color": "#ff4444" if rsi_zone == "overbought" else "#44ff44" if rsi_zone == "oversold" else "#ffaa00",
+                "angle": rsi_angle, # Adicionado
+                "strength": rsi_strength # Adicionado
             },
             "macd": {
                 "macd": macd_value,
                 "signal": signal_value,
                 "histogram": histogram,
                 "trend": "bullish" if histogram > 0 else "bearish" if histogram < 0 else "neutral",
-                "strength": round(abs(histogram), 2)
+                "strength": round(abs(histogram), 2),
+                "macd_angle": macd_angle, # Adicionado
+                "signal_angle": signal_angle # Adicionado
+            },
+            "stochrsi": { # Adicione o bloco StochRSI aqui
+                "k_value": stochrsi_k,
+                "d_value": stochrsi_d,
+                "signal": stochrsi_signal_type, # Use a variável de sinal do StochRSI
+                "zone": stochrsi_zone
             },
             "combined": {
                 "confidence": combined_confidence,
@@ -4562,8 +4825,9 @@ async def get_rsi_macd_websocket_data():
             "timestamp": datetime.now().isoformat(),
             "symbol": "BTC_USDT",
             "error": str(e),
-            "rsi": {"value": 50, "zone": "neutral", "trend": "flat"},
-            "macd": {"macd": 0, "signal": 0, "histogram": 0},
+            "rsi": {"value": 50, "zone": "neutral", "trend": "flat", "angle": 0, "strength": 0},
+            "macd": {"macd": 0, "signal": 0, "histogram": 0, "macd_angle": 0, "signal_angle": 0},
+            "stochrsi": {"k_value": 0, "d_value": 0, "signal": "NEUTRAL", "zone": "N/A"}, # Adicionado
             "combined": {"confidence": 0, "signal_type": "ERROR"}
         }
 
@@ -4618,6 +4882,38 @@ async def shutdown_event():
         logger.info("ThreadPoolExecutor for bot shut down.")
 
     logger.info("✅ Shutdown completed successfully")
+
+def test_stochrsi_calculation():
+    """
+    Testa o cálculo do StochRSI com dados simulados
+    """
+    # Cria dados simulados
+    np.random.seed(42)
+    dates = pd.date_range('2024-01-01', periods=100, freq='1H')
+    prices = 50000 + np.cumsum(np.random.randn(100) * 100)
+    
+    df = pd.DataFrame({
+        'Open': prices * (1 + np.random.randn(100) * 0.001),
+        'High': prices * (1 + np.abs(np.random.randn(100)) * 0.002),
+        'Low': prices * (1 - np.abs(np.random.randn(100)) * 0.002),
+        'Close': prices,
+        'Volume': np.random.randint(1000, 10000, 100)
+    }, index=dates)
+    
+    print("🧪 Testando cálculo StochRSI com dados simulados...")
+    print(f"📊 DataFrame shape: {df.shape}")
+    
+    result = calculate_stochrsi_indicators(df)
+    
+    print(f"📈 Resultados StochRSI:")
+    print(f"   - %K pontos válidos: {len([x for x in result['stoch_k'] if x is not None])}")
+    print(f"   - %D pontos válidos: {len([x for x in result['stoch_d'] if x is not None])}")
+    print(f"   - Último %K: {result.get('last_k')}")
+    print(f"   - Último %D: {result.get('last_d')}")
+    
+    if result['last_k'] and result['last_d']:
+        signal = get_stochrsi_signal(result['last_k'], result['last_d'])
+        print(f"   - Sinal: {signal['signal']} - {signal['description']}")
 
 # ===============================================================================
 # MAIN APPLICATION ENTRY POINT
